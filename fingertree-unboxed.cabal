@@ -1,0 +1,31 @@
+Name:           fingertree-unboxed
+Version:        0.0.1.0
+Copyright:      (c) 2006 Ross Paterson, Ralf Hinze
+License:        BSD3
+License-File:   LICENSE
+Maintainer:     Reiner Pope <reiner.pope@gmail.com>
+Category:       Data Structures
+Synopsis:       Finger-trees with unpacked measurements
+Description:
+                An unpacked version of Ralf Hinze and Ross Paternson's fingertrees.
+                Speed and memory consumption with this package should be slightly
+                better than with the fingertree package. See the following paper
+                for details:
+                .
+                 * Ralf Hinze and Ross Paterson,
+                   \"Finger trees: a simple general-purpose data structure\",
+                   /Journal of Functional Programming/ 16:2 (2006) pp 197-217.
+                   <http://www.soi.city.ac.uk/~ross/papers/FingerTree.html>
+Exposed-Modules:
+                Data.FingerTree.Unboxed
+Build-Type:     Simple
+Build-Depends:  base < 6
+Extensions:     MultiParamTypeClasses
+                FunctionalDependencies
+                FlexibleInstances
+                UndecidableInstances
+                TemplateHaskell
+                TypeFamilies
+                FlexibleContexts
+                ViewPatterns
+                StandaloneDeriving
