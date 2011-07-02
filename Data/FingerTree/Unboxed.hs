@@ -38,6 +38,7 @@ import Data.Foldable (Foldable(foldMap), toList)
 import Data.Traversable (Traversable(traverse))
 import qualified Language.Haskell.TH as TH
 import Control.Monad(liftM2)
+import GHC.Magic(inline)
 
 data Digit a
 	= One a
@@ -114,8 +115,8 @@ instance (Unbox v, Measured v a) => Measured v (FingerTree v a) where
             Empty -> mempty
             Single x -> measure x
             Deep v _ _ _ -> v
---        {-# INLINABLE measure #-}
-        {-# INLINE measure #-}
+        {-# INLINABLE measure #-}
+--        {-# INLINE measure #-}
 
 instance Unbox v => Foldable (FingerTree v) where
         {-# INLINE foldMap #-}
@@ -164,15 +165,15 @@ class (Monoid v) => Measured v a | a -> v where
 
 instance Measured v a => Measured v (Digit a) where
     measure = foldMap measure
---  {-# INLINABLE measure #-}
-    {-# INLINE measure #-}
+    {-# INLINABLE measure #-}
+--    {-# INLINE measure #-}
 
 instance (Monoid v, Unbox v) => Measured v (Node v a) where
     measure node = case unMk1 node of
         Node2 v _ _ -> v
         Node3 v _ _ _ -> v
---    {-# INLINABLE measure #-}
-    {-# INLINE measure #-}
+    {-# INLINABLE measure #-}
+--    {-# INLINE measure #-}
 
 ----------------------------------------------------------------------------------------------------
 --                                         A big 'let' declaration                                --
@@ -203,11 +204,11 @@ dict :: forall v a. (Unbox v, Measured v a) => BigDict v a
 dict = BigDict{..} where
   node2        ::  forall b. Measured v b => b -> b -> Node v b
   node2 a b    =   mk1 $ Node2 (myMeasure a `mappend` myMeasure b) a b
-  {-# INLINE node2 #-}
+  {-# INLINABLE node2 #-}
 
   node3        ::  forall b. Measured v b => b -> b -> b -> Node v b
-  node3 a b c  =   mk1 $ Node3 (measure a `mappend` measure b `mappend` measure c) a b c
-  {-# INLINE node3 #-}
+  node3 a b c  =   mk1 $ Node3 (myMeasure a `mappend` myMeasure b `mappend` myMeasure c) a b c
+  {-# INLINABLE node3 #-}
 
   nodeToDigit :: forall b. Node v b -> Digit b
   nodeToDigit node = case unMk1 node of
@@ -216,7 +217,7 @@ dict = BigDict{..} where
   {-# INLINABLE nodeToDigit #-}
 
   myMeasure :: forall b. Measured v b => b -> v
-  myMeasure = measure
+  myMeasure a = inline measure a
   {-# SPECIALISE myMeasure :: a -> v #-}
   {-# SPECIALISE myMeasure :: Node v b -> v #-}
   {-# SPECIALISE myMeasure :: Digit a -> v #-}
@@ -225,7 +226,7 @@ dict = BigDict{..} where
   {-# SPECIALISE myMeasure :: FingerTree v (Node v b) -> v #-}
 
   deep ::  forall b. Measured v b => Digit b -> FingerTree v (Node v b) -> Digit b -> FingerTree v b
-  deep pr m sf = mk1 $ Deep ((measure pr `mappendVal` m) `mappend` measure sf) pr m sf
+  deep pr m sf = mk1 $ Deep ((myMeasure pr `mappendVal` m) `mappend` myMeasure sf) pr m sf
   {-# SPECIALISE deep :: Digit a -> FingerTree v (Node v a) -> Digit a -> FingerTree v a #-}
   {-# SPECIALISE deep :: Digit (Node v c) -> FingerTree v (Node v (Node v c)) -> Digit (Node v c) -> FingerTree v (Node v c) #-}
 
@@ -250,8 +251,8 @@ dict = BigDict{..} where
         Empty -> mk1 $ Single a
         Single b -> deep (One a) empty' (One b)
         Deep v (Four b c d e) m sf -> m `seq`
-            (mk1 $ Deep (measure a `mappend` v) (Two a b) (consD (node3 c d e) m) sf)
-        Deep v pr m sf -> mk1 $ Deep (measure a `mappend` v) (consDigit a pr) m sf
+            (mk1 $ Deep (myMeasure a `mappend` v) (Two a b) (consD (node3 c d e) m) sf)
+        Deep v pr m sf -> mk1 $ Deep (myMeasure a `mappend` v) (consDigit a pr) m sf
   {-# SPECIALISE consD :: a -> FingerTree v a -> FingerTree v a #-}
   {-# SPECIALISE consD :: Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b) #-}
   {-# INLINABLE consD  #-}
@@ -268,17 +269,17 @@ dict = BigDict{..} where
     Empty -> EmptyL
     Single x -> x :< empty'
     Deep _ (One x) m sf ->  x :< goRotL m sf
-    Deep _ (Two x a) m sf -> x :< mk1 (Deep (measure a `mappend` measure m `mappend` measure sf) (One a) m sf)
-    Deep _ (Three x a b) m sf -> x :< mk1 (Deep (measure a `mappend` measure b `mappend` measure m `mappend` measure sf) (Two a b) m sf)
-    Deep _ (Four x a b c) m sf -> x :< mk1 (Deep (measure a `mappend` measure b `mappend` measure c `mappend` measure m `mappend` measure sf) (Three a b c) m sf)
+    Deep _ (Two x a) m sf -> x :< mk1 (Deep (myMeasure a `mappend` myMeasure m `mappend` myMeasure sf) (One a) m sf)
+    Deep _ (Three x a b) m sf -> x :< mk1 (Deep (myMeasure a `mappend` myMeasure b `mappend` myMeasure m `mappend` myMeasure sf) (Two a b) m sf)
+    Deep _ (Four x a b c) m sf -> x :< mk1 (Deep (myMeasure a `mappend` myMeasure b `mappend` myMeasure c `mappend` myMeasure m `mappend` myMeasure sf) (Three a b c) m sf)
   {-# SPECIALISE viewlD :: FingerTree v a -> ViewL (FingerTree v) a #-}
   {-# SPECIALISE viewlD :: FingerTree v (Node v b) -> ViewL (FingerTree v) (Node v b) #-}
   goRotL :: forall b. Measured v b => FingerTree v (Node v b) -> Digit b -> FingerTree v b
   goRotL m sf      =   case viewlD m of
 	EmptyL  ->  digitToTree sf
 	node :< m' ->  case unMk1 node of
-            Node2 _ a b -> mk1 $ Deep (measure m `mappend` measure sf) (Two a b) m' sf
-            Node3 _ a b c -> mk1 $ Deep (measure m `mappend` measure sf) (Three a b c) m' sf
+            Node2 _ a b -> mk1 $ Deep (myMeasure m `mappend` myMeasure sf) (Two a b) m' sf
+            Node3 _ a b c -> mk1 $ Deep (myMeasure m `mappend` myMeasure sf) (Three a b c) m' sf
   {-# SPECIALISE goRotL :: FingerTree v (Node v a) -> Digit a -> FingerTree v a #-}
   {-# SPECIALISE goRotL :: FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> FingerTree v (Node v b) #-}
 
@@ -291,8 +292,10 @@ dict = BigDict{..} where
 
   mappendVal :: forall b. Measured v b => v -> FingerTree v b -> v
   mappendVal v (unMk1 -> Empty) = v
-  mappendVal v t = v `mappend` measure t
-  {-# INLINE mappendVal #-}
+  mappendVal v t = v `mappend` myMeasure t
+  {-# SPECIALISE mappendVal :: v -> FingerTree v a -> v #-}
+  {-# SPECIALISE mappendVal :: v -> FingerTree v (Node v b) -> v #-}
+  {-# INLINABLE mappendVal #-}
 
 
 {-
