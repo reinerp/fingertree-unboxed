@@ -8,10 +8,10 @@ module Data.FingerTree.Unboxed (
 	Measured(..),
 	-- * Construction
 	empty, singleton,
-	(<|), (|>), -- (><),
-	fromList,
+	(<|), -- (|>), -- (><),
+--	fromList,
 	-- * Deconstruction
-	null,
+--	null,
 	ViewL(..), ViewR(..), viewl, --viewr,
 --	split, takeUntil, dropUntil,
 	-- * Transformation
@@ -22,10 +22,11 @@ module Data.FingerTree.Unboxed (
         defineFingerTree,
 --        Elem(..),
         Node(..),
-        FingerTree',
+--        FingerTree',
         Polymorphic(..),
         Unbox,
         Unpacked1(..),
+        dict, BigDict,
 	) where
 
 import Prelude hiding (null, reverse)
@@ -45,6 +46,10 @@ data Digit a
 	| Four a a a a
 	deriving Show
 
+-----------------------------------------------------------------------------------------------
+-- Template Haskell part
+-----------------------------------------------------------------------------------------------
+
 $(declareType "defineNode_" [d| data Node v a = Node2 !v a a | Node3 !v a a a |])
 -- | Finger trees with element type @a@, annotated with measures of type @v@.
 -- The operations enforce the constraint @'Measured' v a@.
@@ -63,19 +68,25 @@ defineFingerTree sizeTy = do
         treeTy = return $ TH.AppT (TH.AppT (TH.ConT ''FingerTree) t) (TH.VarT nm)
     liftM2 (++) (defineNode_ nodeTy) (defineFingerTree_ treeTy)
 
---newtype Elem a = Elem { getElem :: a }
---newtype FingerTree v a = FT (FingerTree' v (Elem a))
-type FingerTree' = FingerTree
-type Elem a = a
 
-{-
-instance Unbox v => Foldable (FingerTree v) where
-    foldMap f (FT ft) = foldMap (f . getElem) ft
--}
 --infixr 5 ><
 infixr 5 <|, :<
-infixl 5 |>, :>
+--infixl 5 |>, :>
 
+class Unpacked1 f where
+    -- {-# INLINE mk1 #-}
+    mk1 :: Polymorphic (f a) -> f a
+    -- {-# INLINE unMk1 #-}
+    unMk1 :: f a -> Polymorphic (f a)
+class (Unpacked1 (Node v), Unpacked1 (FingerTree v)) => Unbox v
+
+deriving instance (Show v, Show a) => Show (Polymorphic (Node v a))
+
+
+
+----------------------------------------------------------------------------------------------------
+--                                                   Types                                        --
+----------------------------------------------------------------------------------------------------
 -- | View of the left end of a sequence.
 data ViewL s a
 	= EmptyL 	-- ^ empty sequence
@@ -97,112 +108,18 @@ instance Functor s => Functor (ViewR s) where
 	fmap f EmptyR           = EmptyR
 	fmap f (xs :> x)        = fmap f xs :> f x
 
---instance (Unbox v, Measured v a) => Monoid (FingerTree v a) where
---	mempty = empty
---	mappend = (><)
 
--- Explicit Digit type (Exercise 1)
-
-instance Foldable Digit where
-	foldMap f (One a) = f a
-	foldMap f (Two a b) = f a `mappend` f b
-	foldMap f (Three a b c) = f a `mappend` f b `mappend` f c
-	foldMap f (Four a b c d) = f a `mappend` f b `mappend` f c `mappend` f d
-        {-# INLINE foldMap #-}
-
--------------------
--- 4.1 Measurements
--------------------
-
--- | Things that can be measured.
-class (Monoid v) => Measured v a | a -> v where
---        {-# INLINE measure #-}
-	measure :: a -> v
-
-
-instance (Measured v a) => Measured v (Digit a) where
-        {-# INLINE measure #-} -- uck! this creates massive code duplication, but at least the dictionaries disappear
-	measure	=  foldMap measure
-
-{-
-instance (Measured v a) => Measured v (Digit (Elem a)) where
-    {-# INLINABLE measure #-}
-    measure = foldMap measure
-
-instance (Monoid v, Unbox v) => Measured v (Digit (Node v a)) where
-    {-# INLINABLE measure #-}
-    measure = foldMap measure
--}
----------------------------
--- 4.2 Caching measurements
----------------------------
-
-{-
---newtype Elem a = Elem { getElem :: a }
-instance Measured v a => Measured v (Elem a) where
-    {-# INLINE measure #-}
-    measure = measure . getElem
--}
-
-class Unpacked1 f where
-    -- {-# INLINE mk1 #-}
-    mk1 :: Polymorphic (f a) -> f a
-    -- {-# INLINE unMk1 #-}
-    unMk1 :: f a -> Polymorphic (f a)
-
-deriving instance (Show v, Show a) => Show (Polymorphic (Node v a))
-
-instance Unpacked1 (Node v) => Foldable (Node v) where
-        foldMap f node = case unMk1 node of
-           Node2 _ a b -> f a `mappend` f b
-           Node3 _ a b c -> f a `mappend` f b `mappend` f c
-        {-# INLINE foldMap #-}
-
-node2        ::  (Unbox v, Measured v a) => a -> a -> Node v a
-node2 a b    =   mk1 $ Node2 (measure a `mappend` measure b) a b
-{-# INLINE node2 #-}
-
-node3        ::  (Unbox v, Measured v a) => a -> a -> a -> Node v a
-node3 a b c  =   mk1 $ Node3 (measure a `mappend` measure b `mappend` measure c) a b c
-{-# INLINE node3 #-}
-
-instance (Monoid v, Unpacked1 (Node v)) => Measured v (Node v a) where
-        measure n = case unMk1 n of
-            Node2 v _ _ -> v
-            Node3 v _ _ _ -> v
-        {-# INLINE measure #-}
-
-nodeToDigit :: Unpacked1 (Node v) => Node v a -> Digit a
-nodeToDigit node = case unMk1 node of
-    Node2 _ a b -> Two a b
-    Node3 _ a b c -> Three a b c
---nodeToDigit (unMk1 -> Node2 _ a b) = Two a b
---nodeToDigit (unMk1 -> Node3 _ a b c) = Three a b c
-{-# INLINABLE nodeToDigit #-}
-
-
-class (Unpacked1 (Node v), Unpacked1 (FingerTree' v)) => Unbox v
-
-deep ::  (Unbox v, Measured v a) => 
-	 Digit a -> FingerTree' v (Node v a) -> Digit a -> FingerTree' v a
-deep pr m sf = mk1 $ Deep ((measure pr `mappendVal` m) `mappend` measure sf) pr m sf
-{-# INLINE deep #-}
-
-{-
 instance (Unbox v, Measured v a) => Measured v (FingerTree v a) where
-    measure (FT f) = measure f
-    {-# INLINE measure #-}
--}
-
-instance (Unbox v, Measured v a) => Measured v (FingerTree' v a) where
         measure f = case unMk1 f of
             Empty -> mempty
             Single x -> measure x
             Deep v _ _ _ -> v
+--        {-# INLINABLE measure #-}
         {-# INLINE measure #-}
 
-instance Unbox v => Foldable (FingerTree' v) where
+instance Unbox v => Foldable (FingerTree v) where
         {-# INLINE foldMap #-}
+--        {-# INLINABLE foldMap #-}
         foldMap f t = case unMk1 t of
             Empty -> mempty
             Single x -> f x
@@ -222,212 +139,163 @@ instance (Unbox v, Measured v a, Show a) => Show (FingerTree v a) where
 	showsPrec p xs = showParen (p > 10) $
 		showString "fromList " . shows (toList xs)
 
--- | Like 'fmap', but with a more constrained type.
-fmap' :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2) =>
-	(a1 -> a2) -> FingerTree' v1 a1 -> FingerTree' v2 a2
-fmap' = mapTree
-{-# INLINABLE fmap' #-}
 
-mapTree :: (Unbox v1, Unbox v2, Measured v2 a2) =>
-	(a1 -> a2) -> FingerTree' v1 a1 -> FingerTree' v2 a2
-mapTree _ (unMk1 -> Empty) = mk1 Empty
-mapTree f (unMk1 -> Single x) = mk1 $ Single (f x)
-mapTree f (unMk1 -> Deep _ pr m sf) =
-	deep (mapDigit f pr) (mapTree (mapNode f) m) (mapDigit f sf)
-{-# INLINABLE mapTree #-}
+----------------------------------------------------------------------------------------------------
+--                                         Some cheap typeclasses                                 --
+----------------------------------------------------------------------------------------------------
+instance Foldable Digit where
+	foldMap f (One a) = f a
+	foldMap f (Two a b) = f a `mappend` f b
+	foldMap f (Three a b c) = f a `mappend` f b `mappend` f c
+	foldMap f (Four a b c d) = f a `mappend` f b `mappend` f c `mappend` f d
+        {-# INLINE foldMap #-}
+--        {-# INLINABLE foldMap #-}
 
-mapNode :: (Unbox v1, Unbox v2, Measured v2 a2) =>
-	(a1 -> a2) -> Node v1 a1 -> Node v2 a2
-mapNode f (unMk1 -> Node2 _ a b) = node2 (f a) (f b)
-mapNode f (unMk1 -> Node3 _ a b c) = node3 (f a) (f b) (f c)
-{-# INLINABLE mapNode #-}
+instance Unbox v => Foldable (Node v) where
+        foldMap f node = case unMk1 node of
+           Node2 _ a b -> f a `mappend` f b
+           Node3 _ a b c -> f a `mappend` f b `mappend` f c
+--        {-# INLINABLE foldMap #-}
+        {-# INLINE foldMap #-}
 
-mapDigit :: (a -> b) -> Digit a -> Digit b
-mapDigit f (One a) = One (f a)
-mapDigit f (Two a b) = Two (f a) (f b)
-mapDigit f (Three a b c) = Three (f a) (f b) (f c)
-mapDigit f (Four a b c d) = Four (f a) (f b) (f c) (f d)
-{-# INLINABLE mapDigit #-}
+-- | Things that can be measured.
+class (Monoid v) => Measured v a | a -> v where
+	measure :: a -> v
 
--- | Map all elements of the tree with a function that also takes the
--- measure of the prefix of the tree to the left of the element.
-fmapWithPos :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2) =>
-	(v1 -> a1 -> a2) -> FingerTree' v1 a1 -> FingerTree' v2 a2
-fmapWithPos f = mapWPTree f mempty
-{-# INLINABLE fmapWithPos #-}
+instance Measured v a => Measured v (Digit a) where
+    measure = foldMap measure
+--  {-# INLINABLE measure #-}
+    {-# INLINE measure #-}
 
-mapWPTree :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2) =>
-	(v1 -> a1 -> a2) -> v1 -> FingerTree' v1 a1 -> FingerTree' v2 a2
-mapWPTree _ _ (unMk1 -> Empty) = mk1 Empty
-mapWPTree f v (unMk1 -> Single x) = mk1 $ Single (f v x)
-mapWPTree f v (unMk1 -> Deep _ pr m sf) =
-	deep (mapWPDigit f v pr)
-		(mapWPTree (mapWPNode f) vpr m)
-		(mapWPDigit f vm sf)
-  where	vpr	=  v    `mappend`  measure pr
-	vm	=  vpr  `mappendVal` m
-{-# INLINABLE mapWPTree #-}
+instance (Monoid v, Unbox v) => Measured v (Node v a) where
+    measure node = case unMk1 node of
+        Node2 v _ _ -> v
+        Node3 v _ _ _ -> v
+--    {-# INLINABLE measure #-}
+    {-# INLINE measure #-}
 
-mapWPNode :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2) =>
-	(v1 -> a1 -> a2) -> v1 -> Node v1 a1 -> Node v2 a2
-mapWPNode f v (unMk1 -> Node2 _ a b) = node2 (f v a) (f va b)
-  where	va	= v `mappend` measure a
-mapWPNode f v (unMk1 -> Node3 _ a b c) = node3 (f v a) (f va b) (f vab c)
-  where	va	= v `mappend` measure a
-	vab	= va `mappend` measure b
-{-# INLINABLE mapWPNode #-}
+----------------------------------------------------------------------------------------------------
+--                                         A big 'let' declaration                                --
+----------------------------------------------------------------------------------------------------
 
-mapWPDigit :: (Measured v a) => (v -> a -> b) -> v -> Digit a -> Digit b
-mapWPDigit f v (One a) = One (f v a)
-mapWPDigit f v (Two a b) = Two (f v a) (f va b)
-  where	va	= v `mappend` measure a
-mapWPDigit f v (Three a b c) = Three (f v a) (f va b) (f vab c)
-  where	va	= v `mappend` measure a
-	vab	= va `mappend` measure b
-mapWPDigit f v (Four a b c d) = Four (f v a) (f va b) (f vab c) (f vabc d)
-  where	va	= v `mappend` measure a
-	vab	= va `mappend` measure b
-        vabc	= vab `mappend` measure c
-{-# INLINABLE mapWPDigit #-}
+data BigDict v a =
+  BigDict{
+     emptyD :: FingerTree v a,
+     singletonD :: a -> FingerTree v a,
+     consD :: a -> FingerTree v a -> FingerTree v a,
+     viewlD :: FingerTree v a -> ViewL (FingerTree v) a
+    }
 
--- | Like 'fmap', but safe only if the function preserves the measure.
-unsafeFmap :: Unbox v => (a -> b) -> FingerTree' v a -> FingerTree' v b
-unsafeFmap _ (unMk1 -> Empty) = mk1 Empty
-unsafeFmap f (unMk1 -> Single x) = mk1 $ Single (f x)
-unsafeFmap f (unMk1 -> Deep v pr m sf) =
-	mk1 $ Deep v (mapDigit f pr) (unsafeFmap (unsafeFmapNode f) m) (mapDigit f sf)
-{-# INLINABLE unsafeFmap #-}
+newtype MeasuredD v a = MeasuredD { measureD :: a -> v}
 
-unsafeFmapNode :: Unbox v => (a -> b) -> Node v a -> Node v b
-unsafeFmapNode f (unMk1 -> Node2 v a b) = mk1 $ Node2 v (f a) (f b)
-unsafeFmapNode f (unMk1 -> Node3 v a b c) = mk1 $ Node3 v (f a) (f b) (f c)
-{-# INLINABLE unsafeFmapNode #-}
-
--- | Like 'traverse', but with a more constrained type.
-traverse' :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2, Applicative f) =>
-	(a1 -> f a2) -> FingerTree' v1 a1 -> f (FingerTree' v2 a2)
-traverse' = traverseTree
-{-# INLINABLE traverse' #-}
-
-traverseTree :: (Unbox v1, Unbox v2, Measured v2 a2, Applicative f) =>
-	(a1 -> f a2) -> FingerTree' v1 a1 -> f (FingerTree' v2 a2)
-traverseTree _ (unMk1 -> Empty) = pure (mk1 Empty)
-traverseTree f (unMk1 -> Single x) = (mk1 . Single) <$> f x
-traverseTree f (unMk1 -> Deep _ pr m sf) =
-	deep <$> traverseDigit f pr <*> traverseTree (traverseNode f) m <*> traverseDigit f sf
-{-# INLINABLE traverseTree #-}
-
-traverseNode :: (Unbox v1, Unbox v2, Measured v2 a2, Applicative f) =>
-	(a1 -> f a2) -> Node v1 a1 -> f (Node v2 a2)
-traverseNode f (unMk1 -> Node2 _ a b) = node2 <$> f a <*> f b
-traverseNode f (unMk1 -> Node3 _ a b c) = node3 <$> f a <*> f b <*> f c
-{-# INLINABLE traverseNode #-}
-
-traverseDigit :: (Applicative f) => (a -> f b) -> Digit a -> f (Digit b)
-traverseDigit f (One a) = One <$> f a
-traverseDigit f (Two a b) = Two <$> f a <*> f b
-traverseDigit f (Three a b c) = Three <$> f a <*> f b <*> f c
-traverseDigit f (Four a b c d) = Four <$> f a <*> f b <*> f c <*> f d
-{-# INLINABLE traverseDigit #-}
-
--- | Traverse the tree with a function that also takes the
--- measure of the prefix of the tree to the left of the element.
-traverseWithPos :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2, Applicative f) =>
-	(v1 -> a1 -> f a2) -> FingerTree' v1 a1 -> f (FingerTree' v2 a2)
-traverseWithPos f = traverseWPTree f mempty
-{-# INLINABLE traverseWithPos #-}
-
-traverseWPTree :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2, Applicative f) =>
-	(v1 -> a1 -> f a2) -> v1 -> FingerTree' v1 a1 -> f (FingerTree' v2 a2)
-traverseWPTree _ _ (unMk1 -> Empty) = pure (mk1 Empty)
-traverseWPTree f v (unMk1 -> Single x) = (mk1 . Single) <$> f v x
-traverseWPTree f v (unMk1 -> Deep _ pr m sf) =
-	deep <$> traverseWPDigit f v pr <*> traverseWPTree (traverseWPNode f) vpr m <*> traverseWPDigit f vm sf
-  where	vpr	=  v    `mappend`  measure pr
-	vm	=  vpr  `mappendVal` m
-{-# INLINABLE traverseWPTree #-}
-
-traverseWPNode :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2, Applicative f) =>
-	(v1 -> a1 -> f a2) -> v1 -> Node v1 a1 -> f (Node v2 a2)
-traverseWPNode f v (unMk1 -> Node2 _ a b) = node2 <$> f v a <*> f va b
-  where	va	= v `mappend` measure a
-traverseWPNode f v (unMk1 -> Node3 _ a b c) = node3 <$> f v a <*> f va b <*> f vab c
-  where	va	= v `mappend` measure a
-	vab	= va `mappend` measure b
-{-# INLINABLE traverseWPNode #-}
-
-traverseWPDigit :: (Measured v a, Applicative f) =>
-	(v -> a -> f b) -> v -> Digit a -> f (Digit b)
-traverseWPDigit f v (One a) = One <$> f v a
-traverseWPDigit f v (Two a b) = Two <$> f v a <*> f va b
-  where	va	= v `mappend` measure a
-traverseWPDigit f v (Three a b c) = Three <$> f v a <*> f va b <*> f vab c
-  where	va	= v `mappend` measure a
-	vab	= va `mappend` measure b
-traverseWPDigit f v (Four a b c d) = Four <$> f v a <*> f va b <*> f vab c <*> f vabc d
-  where	va	= v `mappend` measure a
-	vab	= va `mappend` measure b
-        vabc	= vab `mappend` measure c
-{-# INLINABLE traverseWPDigit #-}
-
--- | Like 'traverse', but safe only if the function preserves the measure.
-unsafeTraverse :: (Unbox v, Applicative f) =>
-	(a -> f b) -> FingerTree' v a -> f (FingerTree' v b)
-unsafeTraverse _ (unMk1 -> Empty) = pure (mk1 Empty)
-unsafeTraverse f (unMk1 -> Single x) = (mk1 . Single)  <$> f x
-unsafeTraverse f (unMk1 -> Deep v pr m sf) =
-	(\a b c -> mk1 $ Deep v a b c) <$> traverseDigit f pr <*> unsafeTraverse (unsafeTraverseNode f) m <*> traverseDigit f sf
-{-# INLINABLE unsafeTraverse #-}
-
-unsafeTraverseNode :: (Unbox v, Applicative f) =>
-	(a -> f b) -> Node v a -> f (Node v b)
-unsafeTraverseNode f (unMk1 -> Node2 v a b) = (\a b -> mk1 $ Node2 v a b) <$> f a <*> f b
-unsafeTraverseNode f (unMk1 -> Node3 v a b c) = (\a b c -> mk1 $ Node3 v a b c) <$> f a <*> f b <*> f c
-{-# INLINABLE unsafeTraverseNode #-}
-
------------------------------------------------------
--- 4.3 Construction, deconstruction and concatenation
------------------------------------------------------
-
--- | /O(1)/. The empty sequence.
-empty :: (Unbox v, Measured v a) => FingerTree v a
-empty = mk1 Empty
 {-# INLINABLE empty #-}
-
-empty' :: (Measured v a, Unbox v) => FingerTree' v a
-empty' = mk1 Empty
-
--- | /O(1)/. A singleton sequence.
-singleton :: (Unbox v, Measured v a) => a -> FingerTree v a
-singleton = mk1 . Single
+empty = emptyD dict
 {-# INLINABLE singleton #-}
+singleton = singletonD dict
+{-# INLINABLE (<|) #-}
+(<|) = consD dict
+{-# INLINABLE viewl #-}
+viewl = viewlD dict
 
--- | /O(n)/. Create a sequence from a finite list of elements.
-fromList :: (Unbox v, Measured v a) => [a] -> FingerTree v a 
-fromList = foldr (<|) empty
-{-# INLINABLE fromList #-}
+-- this dictionary gives us scoped type variables!
+{-# INLINE dict #-}
+dict :: forall v a. (Unbox v, Measured v a) => BigDict v a
+dict = BigDict{..} where
+  node2        ::  forall b. Measured v b => b -> b -> Node v b
+  node2 a b    =   mk1 $ Node2 (myMeasure a `mappend` myMeasure b) a b
+  {-# INLINE node2 #-}
 
--- | /O(1)/. Add an element to the left end of a sequence.
--- Mnemonic: a triangle with the single element at the pointy end.
-(<|) :: forall v a. (Unbox v, Measured v a) => a -> FingerTree v a -> FingerTree v a
-a <| t = goCons a t where
-    goCons :: forall b. Measured v b => b -> FingerTree v b -> FingerTree v b
-    goCons a t = case unMk1 t of
+  node3        ::  forall b. Measured v b => b -> b -> b -> Node v b
+  node3 a b c  =   mk1 $ Node3 (measure a `mappend` measure b `mappend` measure c) a b c
+  {-# INLINE node3 #-}
+
+  nodeToDigit :: forall b. Node v b -> Digit b
+  nodeToDigit node = case unMk1 node of
+    Node2 _ a b -> Two a b
+    Node3 _ a b c -> Three a b c
+  {-# INLINABLE nodeToDigit #-}
+
+  myMeasure :: forall b. Measured v b => b -> v
+  myMeasure = measure
+  {-# SPECIALISE myMeasure :: a -> v #-}
+  {-# SPECIALISE myMeasure :: Node v b -> v #-}
+  {-# SPECIALISE myMeasure :: Digit a -> v #-}
+  {-# SPECIALISE myMeasure :: Digit (Node v b) -> v #-}
+  {-# SPECIALISE myMeasure :: FingerTree v a -> v #-}
+  {-# SPECIALISE myMeasure :: FingerTree v (Node v b) -> v #-}
+
+  deep ::  forall b. Measured v b => Digit b -> FingerTree v (Node v b) -> Digit b -> FingerTree v b
+  deep pr m sf = mk1 $ Deep ((measure pr `mappendVal` m) `mappend` measure sf) pr m sf
+  {-# SPECIALISE deep :: Digit a -> FingerTree v (Node v a) -> Digit a -> FingerTree v a #-}
+  {-# SPECIALISE deep :: Digit (Node v c) -> FingerTree v (Node v (Node v c)) -> Digit (Node v c) -> FingerTree v (Node v c) #-}
+
+  -- | /O(1)/. The empty sequence.
+  emptyD :: FingerTree v a
+  emptyD = mk1 Empty
+  {-# INLINABLE emptyD #-}
+
+  empty' :: forall b. FingerTree v b
+  empty' = mk1 Empty
+  {-# INLINABLE empty' #-}
+
+  -- | /O(1)/. A singleton sequence.
+  singletonD :: a -> FingerTree v a
+  singletonD = mk1 . Single
+  {-# INLINABLE singletonD #-}
+
+  -- | /O(1)/. Add an element to the left end of a sequence.
+  -- Mnemonic: a triangle with the single element at the pointy end.
+  consD :: forall b. Measured v b => b -> FingerTree v b -> FingerTree v b
+  consD a t = case unMk1 t of
         Empty -> mk1 $ Single a
         Single b -> deep (One a) empty' (One b)
         Deep v (Four b c d e) m sf -> m `seq`
-            (mk1 $ Deep (measure a `mappend` v) (Two a b) (goCons (node3 c d e) m) sf)
+            (mk1 $ Deep (measure a `mappend` v) (Two a b) (consD (node3 c d e) m) sf)
         Deep v pr m sf -> mk1 $ Deep (measure a `mappend` v) (consDigit a pr) m sf
-    {-# SPECIALISE goCons :: Elem a -> FingerTree' v (Elem a) -> FingerTree' v (Elem a) #-}
-    {-# SPECIALISE goCons :: Node v b -> FingerTree' v (Node v b) -> FingerTree' v (Node v b) #-}
-{-# INLINABLE (<|) #-}
+  {-# SPECIALISE consD :: a -> FingerTree v a -> FingerTree v a #-}
+  {-# SPECIALISE consD :: Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b) #-}
+  {-# INLINABLE consD  #-}
 
-consDigit :: a -> Digit a -> Digit a
-consDigit a (One b) = Two a b
-consDigit a (Two b c) = Three a b c
-consDigit a (Three b c d) = Four a b c d
-{-# INLINABLE consDigit #-}
+  consDigit :: forall b. b -> Digit b -> Digit b
+  consDigit a (One b) = Two a b
+  consDigit a (Two b c) = Three a b c
+  consDigit a (Three b c d) = Four a b c d
+  {-# INLINABLE consDigit #-}
 
+  -- | /O(1)/. Analyse the left end of a sequence.
+  viewlD :: forall b. Measured v b => FingerTree v b -> ViewL (FingerTree v) b
+  viewlD f = case unMk1 f of
+    Empty -> EmptyL
+    Single x -> x :< empty'
+    Deep _ (One x) m sf ->  x :< goRotL m sf
+    Deep _ (Two x a) m sf -> x :< mk1 (Deep (measure a `mappend` measure m `mappend` measure sf) (One a) m sf)
+    Deep _ (Three x a b) m sf -> x :< mk1 (Deep (measure a `mappend` measure b `mappend` measure m `mappend` measure sf) (Two a b) m sf)
+    Deep _ (Four x a b c) m sf -> x :< mk1 (Deep (measure a `mappend` measure b `mappend` measure c `mappend` measure m `mappend` measure sf) (Three a b c) m sf)
+  {-# SPECIALISE viewlD :: FingerTree v a -> ViewL (FingerTree v) a #-}
+  {-# SPECIALISE viewlD :: FingerTree v (Node v b) -> ViewL (FingerTree v) (Node v b) #-}
+  goRotL :: forall b. Measured v b => FingerTree v (Node v b) -> Digit b -> FingerTree v b
+  goRotL m sf      =   case viewlD m of
+	EmptyL  ->  digitToTree sf
+	node :< m' ->  case unMk1 node of
+            Node2 _ a b -> mk1 $ Deep (measure m `mappend` measure sf) (Two a b) m' sf
+            Node3 _ a b c -> mk1 $ Deep (measure m `mappend` measure sf) (Three a b c) m' sf
+  {-# SPECIALISE goRotL :: FingerTree v (Node v a) -> Digit a -> FingerTree v a #-}
+  {-# SPECIALISE goRotL :: FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> FingerTree v (Node v b) #-}
+
+  digitToTree :: forall b. (Measured v b) => Digit b -> FingerTree v b
+  digitToTree (One a) = mk1 $ Single a
+  digitToTree (Two a b) = deep (One a) empty' (One b)
+  digitToTree (Three a b c) = deep (Two a b) empty' (One c)
+  digitToTree (Four a b c d) = deep (Two a b) empty' (Two c d)
+  {-# INLINABLE digitToTree #-}
+
+  mappendVal :: forall b. Measured v b => v -> FingerTree v b -> v
+  mappendVal v (unMk1 -> Empty) = v
+  mappendVal v t = v `mappend` measure t
+  {-# INLINE mappendVal #-}
+
+
+{-
 -- | /O(1)/. Add an element to the right end of a sequence.
 -- Mnemonic: a triangle with the single element at the pointy end.
 (|>) :: forall v a. (Unbox v, Measured v a) => FingerTree v a -> a -> FingerTree v a
@@ -448,36 +316,14 @@ snocDigit (One a) b = Two a b
 snocDigit (Two a b) c = Three a b c
 snocDigit (Three a b c) d = Four a b c d
 {-# INLINABLE snocDigit #-}
-
+-}
+{-
 -- | /O(1)/. Is this the empty sequence?
 null :: (Unbox v, Measured v a) => FingerTree v a -> Bool
 null (unMk1 -> Empty) = True
 null _ = False
 {-# INLINABLE null #-}
-
--- | /O(1)/. Analyse the left end of a sequence.
-viewl :: forall v a. (Unbox v, Measured v a) => FingerTree v a -> ViewL (FingerTree v) a
-viewl f = goViewl f where
-  goViewl :: forall b. Measured v b => FingerTree v b -> ViewL (FingerTree v) b
-  goViewl f = case unMk1 f of
-    Empty -> EmptyL
-    Single x -> x :< empty'
-    Deep _ (One x) m sf ->  x :< goRotL m sf
-    Deep _ (Two x a) m sf -> x :< mk1 (Deep (measure a `mappend` measure m `mappend` measure sf) (One a) m sf)
-    Deep _ (Three x a b) m sf -> x :< mk1 (Deep (measure a `mappend` measure b `mappend` measure m `mappend` measure sf) (Two a b) m sf)
-    Deep _ (Four x a b c) m sf -> x :< mk1 (Deep (measure a `mappend` measure b `mappend` measure c `mappend` measure m `mappend` measure sf) (Three a b c) m sf)
-  {-# SPECIALISE goViewl :: FingerTree' v (Elem a) -> ViewL (FingerTree' v) (Elem a) #-}
-  {-# SPECIALISE goViewl :: FingerTree' v (Node v b) -> ViewL (FingerTree' v) (Node v b) #-}
-  goRotL :: forall b. Measured v b => FingerTree v (Node v b) -> Digit b -> FingerTree v b
-  goRotL m sf      =   case goViewl m of
-	EmptyL  ->  digitToTree sf
-	node :< m' ->  case unMk1 node of
-            Node2 _ a b -> mk1 $ Deep (measure m `mappend` measure sf) (Two a b) m' sf
-            Node3 _ a b c -> mk1 $ Deep (measure m `mappend` measure sf) (Three a b c) m' sf
-  {-# SPECIALISE goRotL :: FingerTree' v (Node v (Elem a)) -> Digit (Elem a) -> FingerTree' v (Elem a) #-}
-  {-# SPECIALISE goRotL :: FingerTree' v (Node v (Node v b)) -> Digit (Node v b) -> FingerTree' v (Node v b) #-}
-{-# INLINABLE viewl #-}
-
+-}
 
 {-
 rotL :: (Unbox v, Measured v a) => FingerTree v (Node v a) -> Digit a -> FingerTree v a
@@ -528,13 +374,6 @@ rtailDigit (Three a b _) = Two a b
 rtailDigit (Four a b c _) = Three a b c
 {-# INLINABLE rtailDigit #-}
 -}
-
-digitToTree :: (Unbox v, Measured v a) => Digit a -> FingerTree' v a
-digitToTree (One a) = mk1 $ Single a
-digitToTree (Two a b) = deep (One a) empty' (One b)
-digitToTree (Three a b c) = deep (Two a b) empty' (One c)
-digitToTree (Four a b c d) = deep (Two a b) empty' (Two c d)
-{-# INLINABLE digitToTree #-}
 
 ----------------
 -- Concatenation
@@ -830,10 +669,6 @@ splitTree p i f = splitTree' i f where
 	        vm	=  vpr  `mappendVal` m
 -}
 -- Avoid relying on right identity (cf Exercise 7)
-mappendVal :: (Unbox v, Measured v a) => v -> FingerTree' v a -> v
-mappendVal v (unMk1 -> Empty) = v
-mappendVal v t = v `mappend` measure t
-{-# INLINE mappendVal #-}
 {-
 deepL          ::  (Unbox v, Measured v a) =>
 	Maybe (Digit a) -> FingerTree v (Node v a) -> Digit a -> FingerTree v a
@@ -911,4 +746,178 @@ reverseDigit f (Two a b) = Two (f b) (f a)
 reverseDigit f (Three a b c) = Three (f c) (f b) (f a)
 reverseDigit f (Four a b c d) = Four (f d) (f c) (f b) (f a)
 {-# INLINABLE reverseDigit #-}
+-}
+
+
+{-
+-- | Like 'fmap', but with a more constrained type.
+fmap' :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2) =>
+     (a1 -> a2) -> FingerTree' v1 a1 -> FingerTree' v2 a2
+fmap' = mapTree
+{-# INLINABLE fmap' #-}
+
+mapTree :: (Unbox v1, Unbox v2, Measured v2 a2) =>
+	(a1 -> a2) -> FingerTree' v1 a1 -> FingerTree' v2 a2
+mapTree _ (unMk1 -> Empty) = mk1 Empty
+mapTree f (unMk1 -> Single x) = mk1 $ Single (f x)
+mapTree f (unMk1 -> Deep _ pr m sf) =
+	deep (mapDigit f pr) (mapTree (mapNode f) m) (mapDigit f sf)
+{-# INLINABLE mapTree #-}
+
+mapNode :: (Unbox v1, Unbox v2, Measured v2 a2) =>
+	(a1 -> a2) -> Node v1 a1 -> Node v2 a2
+mapNode f (unMk1 -> Node2 _ a b) = node2 (f a) (f b)
+mapNode f (unMk1 -> Node3 _ a b c) = node3 (f a) (f b) (f c)
+{-# INLINABLE mapNode #-}
+
+mapDigit :: (a -> b) -> Digit a -> Digit b
+mapDigit f (One a) = One (f a)
+mapDigit f (Two a b) = Two (f a) (f b)
+mapDigit f (Three a b c) = Three (f a) (f b) (f c)
+mapDigit f (Four a b c d) = Four (f a) (f b) (f c) (f d)
+{-# INLINABLE mapDigit #-}
+
+-- | Map all elements of the tree with a function that also takes the
+-- measure of the prefix of the tree to the left of the element.
+fmapWithPos :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2) =>
+	(v1 -> a1 -> a2) -> FingerTree' v1 a1 -> FingerTree' v2 a2
+fmapWithPos f = mapWPTree f mempty
+{-# INLINABLE fmapWithPos #-}
+
+mapWPTree :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2) =>
+	(v1 -> a1 -> a2) -> v1 -> FingerTree' v1 a1 -> FingerTree' v2 a2
+mapWPTree _ _ (unMk1 -> Empty) = mk1 Empty
+mapWPTree f v (unMk1 -> Single x) = mk1 $ Single (f v x)
+mapWPTree f v (unMk1 -> Deep _ pr m sf) =
+	deep (mapWPDigit f v pr)
+		(mapWPTree (mapWPNode f) vpr m)
+		(mapWPDigit f vm sf)
+  where	vpr	=  v    `mappend`  measure pr
+	vm	=  vpr  `mappendVal` m
+{-# INLINABLE mapWPTree #-}
+
+mapWPNode :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2) =>
+	(v1 -> a1 -> a2) -> v1 -> Node v1 a1 -> Node v2 a2
+mapWPNode f v (unMk1 -> Node2 _ a b) = node2 (f v a) (f va b)
+  where	va	= v `mappend` measure a
+mapWPNode f v (unMk1 -> Node3 _ a b c) = node3 (f v a) (f va b) (f vab c)
+  where	va	= v `mappend` measure a
+	vab	= va `mappend` measure b
+{-# INLINABLE mapWPNode #-}
+
+mapWPDigit :: (Measured v a) => (v -> a -> b) -> v -> Digit a -> Digit b
+mapWPDigit f v (One a) = One (f v a)
+mapWPDigit f v (Two a b) = Two (f v a) (f va b)
+  where	va	= v `mappend` measure a
+mapWPDigit f v (Three a b c) = Three (f v a) (f va b) (f vab c)
+  where	va	= v `mappend` measure a
+	vab	= va `mappend` measure b
+mapWPDigit f v (Four a b c d) = Four (f v a) (f va b) (f vab c) (f vabc d)
+  where	va	= v `mappend` measure a
+	vab	= va `mappend` measure b
+        vabc	= vab `mappend` measure c
+{-# INLINABLE mapWPDigit #-}
+
+-- | Like 'fmap', but safe only if the function preserves the measure.
+unsafeFmap :: Unbox v => (a -> b) -> FingerTree' v a -> FingerTree' v b
+unsafeFmap _ (unMk1 -> Empty) = mk1 Empty
+unsafeFmap f (unMk1 -> Single x) = mk1 $ Single (f x)
+unsafeFmap f (unMk1 -> Deep v pr m sf) =
+	mk1 $ Deep v (mapDigit f pr) (unsafeFmap (unsafeFmapNode f) m) (mapDigit f sf)
+{-# INLINABLE unsafeFmap #-}
+
+unsafeFmapNode :: Unbox v => (a -> b) -> Node v a -> Node v b
+unsafeFmapNode f (unMk1 -> Node2 v a b) = mk1 $ Node2 v (f a) (f b)
+unsafeFmapNode f (unMk1 -> Node3 v a b c) = mk1 $ Node3 v (f a) (f b) (f c)
+{-# INLINABLE unsafeFmapNode #-}
+
+-- | Like 'traverse', but with a more constrained type.
+traverse' :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2, Applicative f) =>
+	(a1 -> f a2) -> FingerTree' v1 a1 -> f (FingerTree' v2 a2)
+traverse' = traverseTree
+{-# INLINABLE traverse' #-}
+
+traverseTree :: (Unbox v1, Unbox v2, Measured v2 a2, Applicative f) =>
+	(a1 -> f a2) -> FingerTree' v1 a1 -> f (FingerTree' v2 a2)
+traverseTree _ (unMk1 -> Empty) = pure (mk1 Empty)
+traverseTree f (unMk1 -> Single x) = (mk1 . Single) <$> f x
+traverseTree f (unMk1 -> Deep _ pr m sf) =
+	deep <$> traverseDigit f pr <*> traverseTree (traverseNode f) m <*> traverseDigit f sf
+{-# INLINABLE traverseTree #-}
+
+traverseNode :: (Unbox v1, Unbox v2, Measured v2 a2, Applicative f) =>
+	(a1 -> f a2) -> Node v1 a1 -> f (Node v2 a2)
+traverseNode f (unMk1 -> Node2 _ a b) = node2 <$> f a <*> f b
+traverseNode f (unMk1 -> Node3 _ a b c) = node3 <$> f a <*> f b <*> f c
+{-# INLINABLE traverseNode #-}
+
+traverseDigit :: (Applicative f) => (a -> f b) -> Digit a -> f (Digit b)
+traverseDigit f (One a) = One <$> f a
+traverseDigit f (Two a b) = Two <$> f a <*> f b
+traverseDigit f (Three a b c) = Three <$> f a <*> f b <*> f c
+traverseDigit f (Four a b c d) = Four <$> f a <*> f b <*> f c <*> f d
+{-# INLINABLE traverseDigit #-}
+
+-- | Traverse the tree with a function that also takes the
+-- measure of the prefix of the tree to the left of the element.
+traverseWithPos :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2, Applicative f) =>
+	(v1 -> a1 -> f a2) -> FingerTree' v1 a1 -> f (FingerTree' v2 a2)
+traverseWithPos f = traverseWPTree f mempty
+{-# INLINABLE traverseWithPos #-}
+
+traverseWPTree :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2, Applicative f) =>
+	(v1 -> a1 -> f a2) -> v1 -> FingerTree' v1 a1 -> f (FingerTree' v2 a2)
+traverseWPTree _ _ (unMk1 -> Empty) = pure (mk1 Empty)
+traverseWPTree f v (unMk1 -> Single x) = (mk1 . Single) <$> f v x
+traverseWPTree f v (unMk1 -> Deep _ pr m sf) =
+	deep <$> traverseWPDigit f v pr <*> traverseWPTree (traverseWPNode f) vpr m <*> traverseWPDigit f vm sf
+  where	vpr	=  v    `mappend`  measure pr
+	vm	=  vpr  `mappendVal` m
+{-# INLINABLE traverseWPTree #-}
+
+traverseWPNode :: (Unbox v1, Unbox v2, Measured v1 a1, Measured v2 a2, Applicative f) =>
+	(v1 -> a1 -> f a2) -> v1 -> Node v1 a1 -> f (Node v2 a2)
+traverseWPNode f v (unMk1 -> Node2 _ a b) = node2 <$> f v a <*> f va b
+  where	va	= v `mappend` measure a
+traverseWPNode f v (unMk1 -> Node3 _ a b c) = node3 <$> f v a <*> f va b <*> f vab c
+  where	va	= v `mappend` measure a
+	vab	= va `mappend` measure b
+{-# INLINABLE traverseWPNode #-}
+
+traverseWPDigit :: (Measured v a, Applicative f) =>
+	(v -> a -> f b) -> v -> Digit a -> f (Digit b)
+traverseWPDigit f v (One a) = One <$> f v a
+traverseWPDigit f v (Two a b) = Two <$> f v a <*> f va b
+  where	va	= v `mappend` measure a
+traverseWPDigit f v (Three a b c) = Three <$> f v a <*> f va b <*> f vab c
+  where	va	= v `mappend` measure a
+	vab	= va `mappend` measure b
+traverseWPDigit f v (Four a b c d) = Four <$> f v a <*> f va b <*> f vab c <*> f vabc d
+  where	va	= v `mappend` measure a
+	vab	= va `mappend` measure b
+        vabc	= vab `mappend` measure c
+{-# INLINABLE traverseWPDigit #-}
+
+-- | Like 'traverse', but safe only if the function preserves the measure.
+unsafeTraverse :: (Unbox v, Applicative f) =>
+	(a -> f b) -> FingerTree' v a -> f (FingerTree' v b)
+unsafeTraverse _ (unMk1 -> Empty) = pure (mk1 Empty)
+unsafeTraverse f (unMk1 -> Single x) = (mk1 . Single)  <$> f x
+unsafeTraverse f (unMk1 -> Deep v pr m sf) =
+	(\a b c -> mk1 $ Deep v a b c) <$> traverseDigit f pr <*> unsafeTraverse (unsafeTraverseNode f) m <*> traverseDigit f sf
+{-# INLINABLE unsafeTraverse #-}
+
+unsafeTraverseNode :: (Unbox v, Applicative f) =>
+	(a -> f b) -> Node v a -> f (Node v b)
+unsafeTraverseNode f (unMk1 -> Node2 v a b) = (\a b -> mk1 $ Node2 v a b) <$> f a <*> f b
+unsafeTraverseNode f (unMk1 -> Node3 v a b c) = (\a b c -> mk1 $ Node3 v a b c) <$> f a <*> f b <*> f c
+{-# INLINABLE unsafeTraverseNode #-}
+-}
+
+
+{-
+-- | /O(n)/. Create a sequence from a finite list of elements.
+fromList :: (Unbox v, Measured v a) => [a] -> FingerTree v a 
+fromList = foldr (<|) empty
+{-# INLINABLE fromList #-}
 -}

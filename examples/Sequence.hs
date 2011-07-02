@@ -27,7 +27,7 @@ instance F.Unpacked1 (Node Size) where
     mk1 = mk
     {-# INLINE unMk1 #-}
     unMk1 = unMk
-instance F.Unpacked1 (FingerTree' Size) where
+instance F.Unpacked1 (FingerTree Size) where
     {-# INLINE mk1 #-}
     mk1 = mk
     {-# INLINE unMk1 #-}
@@ -43,17 +43,22 @@ singleton = Seq . F.singleton . Elem
 
 -- fromList = undefined
 
+-- {-# SPECIALISE F.dict :: BigDict Size (Elem a) #-}
+
 (<|) :: a -> Seq a -> Seq a
 el <| (Seq a) = Seq (Elem el F.<| a)
 {-# SPECIALISE (F.<|) :: Elem a -> FingerTree Size (Elem a) -> FingerTree Size (Elem a) #-}
 
+{-
 (|>) :: Seq a -> a -> Seq a
 (Seq a) |> el = Seq (a F.|> Elem el)
 {-# SPECIALISE (F.|>) :: FingerTree Size (Elem a) -> Elem a -> FingerTree Size (Elem a) #-}
+-}
 
+{-
 null :: Seq a -> Bool
 null (Seq a) = F.null a
-
+-}
 
 viewl :: Seq a -> ViewL Seq a
 viewl (Seq a) = case F.viewl a of
