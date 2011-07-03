@@ -202,12 +202,19 @@ viewl = viewlD dict
 {-# INLINE dict #-}
 dict :: forall v a. (Unbox v, Measured v a) => BigDict v a
 dict = BigDict{..} where
+  ------------------------------------------------------------------------------------------
+  --                                         Smart constructors                           --
+  ------------------------------------------------------------------------------------------
   node2        ::  forall b. Measured v b => b -> b -> Node v b
   node2 a b    =   mk1 $ Node2 (myMeasure a `mappend` myMeasure b) a b
+  {-# SPECIALISE node2 :: a -> a -> Node v a #-}
+  {-# SPECIALISE node2 :: Node v b -> Node v b -> Node v (Node v b) #-}
   {-# INLINABLE node2 #-}
 
   node3        ::  forall b. Measured v b => b -> b -> b -> Node v b
   node3 a b c  =   mk1 $ Node3 (myMeasure a `mappend` myMeasure b `mappend` myMeasure c) a b c
+  {-# SPECIALISE node3 :: a -> a -> a -> Node v a #-}
+  {-# SPECIALISE node3 :: Node v b -> Node v b -> Node v b -> Node v (Node v b) #-}
   {-# INLINABLE node3 #-}
 
   nodeToDigit :: forall b. Node v b -> Digit b
@@ -230,20 +237,33 @@ dict = BigDict{..} where
   {-# SPECIALISE deep :: Digit a -> FingerTree v (Node v a) -> Digit a -> FingerTree v a #-}
   {-# SPECIALISE deep :: Digit (Node v c) -> FingerTree v (Node v (Node v c)) -> Digit (Node v c) -> FingerTree v (Node v c) #-}
 
-  -- | /O(1)/. The empty sequence.
-  emptyD :: FingerTree v a
-  emptyD = mk1 Empty
-  {-# INLINABLE emptyD #-}
-
   empty' :: forall b. FingerTree v b
   empty' = mk1 Empty
   {-# INLINABLE empty' #-}
+
+  mappendVal :: forall b. Measured v b => v -> FingerTree v b -> v
+  mappendVal v (unMk1 -> Empty) = v
+  mappendVal v t = v `mappend` myMeasure t
+  {-# SPECIALISE mappendVal :: v -> FingerTree v a -> v #-}
+  {-# SPECIALISE mappendVal :: v -> FingerTree v (Node v b) -> v #-}
+  {-# INLINABLE mappendVal #-}
+
+  ------------------------------------------------------------------------------------------
+  --                                    Empty and singleton                               --
+  ------------------------------------------------------------------------------------------
+  -- | /O(1)/. The empty sequence.
+  emptyD :: FingerTree v a
+  emptyD = empty'
+  {-# INLINABLE emptyD #-}
 
   -- | /O(1)/. A singleton sequence.
   singletonD :: a -> FingerTree v a
   singletonD = mk1 . Single
   {-# INLINABLE singletonD #-}
 
+  ------------------------------------------------------------------------------------------
+  --                                         Cons                                         --
+  ------------------------------------------------------------------------------------------
   -- | /O(1)/. Add an element to the left end of a sequence.
   -- Mnemonic: a triangle with the single element at the pointy end.
   consD :: forall b. Measured v b => b -> FingerTree v b -> FingerTree v b
@@ -263,40 +283,49 @@ dict = BigDict{..} where
   consDigit a (Three b c d) = Four a b c d
   {-# INLINABLE consDigit #-}
 
+  ------------------------------------------------------------------------------------------
+  --                                         viewl                                        --
+  ------------------------------------------------------------------------------------------
   -- | /O(1)/. Analyse the left end of a sequence.
   viewlD :: forall b. Measured v b => FingerTree v b -> ViewL (FingerTree v) b
   viewlD f = case unMk1 f of
     Empty -> EmptyL
     Single x -> x :< empty'
-    Deep _ (One x) m sf ->  x :< goRotL m sf
-    Deep _ (Two x a) m sf -> x :< mk1 (Deep (myMeasure a `mappend` myMeasure m `mappend` myMeasure sf) (One a) m sf)
-    Deep _ (Three x a b) m sf -> x :< mk1 (Deep (myMeasure a `mappend` myMeasure b `mappend` myMeasure m `mappend` myMeasure sf) (Two a b) m sf)
-    Deep _ (Four x a b c) m sf -> x :< mk1 (Deep (myMeasure a `mappend` myMeasure b `mappend` myMeasure c `mappend` myMeasure m `mappend` myMeasure sf) (Three a b c) m sf)
+    Deep _ pr m sf -> case viewlDigit pr of
+       Left x -> x :< rotL m sf
+       Right (x, pr') -> x :< deep pr' m sf
   {-# SPECIALISE viewlD :: FingerTree v a -> ViewL (FingerTree v) a #-}
   {-# SPECIALISE viewlD :: FingerTree v (Node v b) -> ViewL (FingerTree v) (Node v b) #-}
-  goRotL :: forall b. Measured v b => FingerTree v (Node v b) -> Digit b -> FingerTree v b
-  goRotL m sf      =   case viewlD m of
+
+  rotL :: forall b. Measured v b => FingerTree v (Node v b) -> Digit b -> FingerTree v b
+  rotL m sf      =   case viewlD m of
 	EmptyL  ->  digitToTree sf
 	node :< m' ->  case unMk1 node of
             Node2 _ a b -> mk1 $ Deep (myMeasure m `mappend` myMeasure sf) (Two a b) m' sf
             Node3 _ a b c -> mk1 $ Deep (myMeasure m `mappend` myMeasure sf) (Three a b c) m' sf
-  {-# SPECIALISE goRotL :: FingerTree v (Node v a) -> Digit a -> FingerTree v a #-}
-  {-# SPECIALISE goRotL :: FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> FingerTree v (Node v b) #-}
+  {-# SPECIALISE rotL :: FingerTree v (Node v a) -> Digit a -> FingerTree v a #-}
+  {-# SPECIALISE rotL :: FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> FingerTree v (Node v b) #-}
+
+  viewlDigit :: Digit b -> Either b (b, Digit b)
+  viewlDigit (One a) = Left a
+  viewlDigit (Two a b) = Right (a, One b)
+  viewlDigit (Three a b c) = Right (a, Two b c)
+  viewlDigit (Four a b c d) = Right (a, Three b c d)
+  {-# INLINABLE viewlDigit #-}
 
   digitToTree :: forall b. (Measured v b) => Digit b -> FingerTree v b
   digitToTree (One a) = mk1 $ Single a
   digitToTree (Two a b) = deep (One a) empty' (One b)
   digitToTree (Three a b c) = deep (Two a b) empty' (One c)
   digitToTree (Four a b c d) = deep (Two a b) empty' (Two c d)
+  {-# SPECIALISE digitToTree :: Digit a -> FingerTree v a #-}
+  {-# SPECIALISE digitToTree :: Digit (Node v b) -> FingerTree v (Node v b) #-}
   {-# INLINABLE digitToTree #-}
 
-  mappendVal :: forall b. Measured v b => v -> FingerTree v b -> v
-  mappendVal v (unMk1 -> Empty) = v
-  mappendVal v t = v `mappend` myMeasure t
-  {-# SPECIALISE mappendVal :: v -> FingerTree v a -> v #-}
-  {-# SPECIALISE mappendVal :: v -> FingerTree v (Node v b) -> v #-}
-  {-# INLINABLE mappendVal #-}
-
+  ------------------------------------------------------------------------------------------
+  --                                              (><)                                    --
+  ------------------------------------------------------------------------------------------
+  
 
 {-
 -- | /O(1)/. Add an element to the right end of a sequence.
