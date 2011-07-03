@@ -49,6 +49,10 @@ singleton = Seq . F.singleton . Elem
 el <| (Seq a) = Seq (Elem el F.<| a)
 {-# SPECIALISE (F.<|) :: Elem a -> FingerTree Size (Elem a) -> FingerTree Size (Elem a) #-}
 
+(><) :: Seq a -> Seq a -> Seq a
+(Seq l) >< (Seq r) = Seq (l F.>< r)
+{-# SPECIALISE (F.><) :: FingerTree Size (Elem a) -> FingerTree Size (Elem a) -> FingerTree Size (Elem a) #-}
+
 {-
 (|>) :: Seq a -> a -> Seq a
 (Seq a) |> el = Seq (a F.|> Elem el)

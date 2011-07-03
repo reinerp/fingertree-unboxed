@@ -8,7 +8,7 @@ module Data.FingerTree.Unboxed (
 	Measured(..),
 	-- * Construction
 	empty, singleton,
-	(<|), -- (|>), -- (><),
+	(<|), (|>), (><),
 --	fromList,
 	-- * Deconstruction
 --	null,
@@ -184,7 +184,9 @@ data BigDict v a =
      emptyD :: FingerTree v a,
      singletonD :: a -> FingerTree v a,
      consD :: a -> FingerTree v a -> FingerTree v a,
-     viewlD :: FingerTree v a -> ViewL (FingerTree v) a
+     snocD :: FingerTree v a -> a -> FingerTree v a,
+     viewlD :: FingerTree v a -> ViewL (FingerTree v) a,
+     appendD :: FingerTree v a -> FingerTree v a -> FingerTree v a
     }
 
 newtype MeasuredD v a = MeasuredD { measureD :: a -> v}
@@ -195,6 +197,10 @@ empty = emptyD dict
 singleton = singletonD dict
 {-# INLINABLE (<|) #-}
 (<|) = consD dict
+{-# INLINABLE (|>) #-}
+(|>) = snocD dict
+{-# INLINABLE (><) #-}
+(><) = appendD dict
 {-# INLINABLE viewl #-}
 viewl = viewlD dict
 
@@ -284,6 +290,28 @@ dict = BigDict{..} where
   {-# INLINABLE consDigit #-}
 
   ------------------------------------------------------------------------------------------
+  --                                         Snoc                                         --
+  ------------------------------------------------------------------------------------------
+  -- | /O(1)/. Add an element to the right end of a sequence.
+  -- Mnemonic: a triangle with the single element at the pointy end.
+  snocD :: forall b. Measured v b => FingerTree v b -> b -> FingerTree v b
+  snocD t l = case unMk1 t of
+        Empty -> mk1 $ Single l
+        Single a -> deep (One a) empty' (One l)
+        Deep v pr m (Four a b c d) -> m `seq`
+           (mk1 $  Deep (v `mappend` myMeasure l) pr (snocD m (node3 a b c)) (Two d l))
+        Deep v pr m sf -> mk1 $ Deep (v `mappend` myMeasure l) pr m (snocDigit sf l)
+  {-# SPECIALISE snocD :: FingerTree v a -> a -> FingerTree v a #-}
+  {-# SPECIALISE snocD :: FingerTree v (Node v b) -> Node v b -> FingerTree v (Node v b) #-}
+  {-# INLINABLE snocD #-}
+
+  snocDigit :: forall b. Digit b -> b -> Digit b
+  snocDigit (One a) b = Two a b
+  snocDigit (Two a b) c = Three a b c
+  snocDigit (Three a b c) d = Four a b c d
+  {-# INLINABLE snocDigit #-}
+
+  ------------------------------------------------------------------------------------------
   --                                         viewl                                        --
   ------------------------------------------------------------------------------------------
   -- | /O(1)/. Analyse the left end of a sequence.
@@ -325,29 +353,245 @@ dict = BigDict{..} where
   ------------------------------------------------------------------------------------------
   --                                              (><)                                    --
   ------------------------------------------------------------------------------------------
-  
+  infixl 5 `snocD`
+  infixr 5 `consD`
+  -- | /O(log(min(n1,n2)))/. Concatenate two sequences.
+  appendD :: FingerTree v a -> FingerTree v a -> FingerTree v a
+  appendD =  appendTree0
+  {-# INLINABLE appendD #-}
+
+  appendTree0 :: FingerTree v a -> FingerTree v a -> FingerTree v a
+  appendTree0 l r = case (unMk1 l, unMk1 r) of
+    (Empty, _) -> r
+    (_, Empty) -> l
+    (Single x, _) -> x `consD` r
+    (_, Single x) -> l `snocD` x
+    (Deep _ pr1 m1 sf1, Deep _ pr2 m2 sf2) -> deep pr1 (addDigits0 m1 sf1 pr2 m2) sf2
+  {-# INLINABLE appendTree0 #-}
+{-
+  appendTree0 l r = case unMk1 l of
+      Empty -> r
+      Single x -> x `consD` r -- assume that the "r=Empty" check will be done by 'consD'
+      Deep _ pr1 m1 sf1 -> case unMk1 r of
+          Empty -> l
+          Single x -> l `snocD` x
+          Deep _ pr2 m2 sf2 -> deep pr1 (addDigits0 m1 sf1 pr2 m2) sf2
+  {-# INLINABLE appendTree0 #-}
+-}
+
+  addDigits0 :: FingerTree v (Node v a) -> Digit a -> Digit a -> FingerTree v (Node v a) -> FingerTree v (Node v a)
+  addDigits0 m1 (One a) (One b) m2 =
+	appendTree1 m1 (node2 a b) m2
+  addDigits0 m1 (One a) (Two b c) m2 =
+	appendTree1 m1 (node3 a b c) m2
+  addDigits0 m1 (One a) (Three b c d) m2 =
+	appendTree2 m1 (node2 a b) (node2 c d) m2
+  addDigits0 m1 (One a) (Four b c d e) m2 =
+	appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits0 m1 (Two a b) (One c) m2 =
+	appendTree1 m1 (node3 a b c) m2
+  addDigits0 m1 (Two a b) (Two c d) m2 =
+	appendTree2 m1 (node2 a b) (node2 c d) m2
+  addDigits0 m1 (Two a b) (Three c d e) m2 =
+	appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits0 m1 (Two a b) (Four c d e f) m2 =
+	appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits0 m1 (Three a b c) (One d) m2 =
+	appendTree2 m1 (node2 a b) (node2 c d) m2
+  addDigits0 m1 (Three a b c) (Two d e) m2 =
+	appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits0 m1 (Three a b c) (Three d e f) m2 =
+	appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits0 m1 (Three a b c) (Four d e f g) m2 =
+	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits0 m1 (Four a b c d) (One e) m2 =
+	appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits0 m1 (Four a b c d) (Two e f) m2 =
+	appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits0 m1 (Four a b c d) (Three e f g) m2 =
+	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits0 m1 (Four a b c d) (Four e f g h) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  {-# INLINABLE addDigits0 #-}
+
+  appendTree1 :: forall b. FingerTree v (Node v b) -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
+  appendTree1 l a r = case (unMk1 l, unMk1 r) of
+      (Empty, _) -> a `consD` r
+      (_, Empty) -> l `snocD` a
+      (Single x, _) -> x `consD` a `consD` r
+      (_, Single x) -> l `snocD` a `snocD` x
+      (Deep _ pr1 m1 sf1, Deep _ pr2 m2 sf2) -> deep pr1 (addDigits1 m1 sf1 a pr2 m2) sf2
+  {-# INLINABLE appendTree1 #-}
+
+  addDigits1 :: forall b. FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
+  addDigits1 m1 (One a) b (One c) m2 =
+	appendTree1 m1 (node3 a b c) m2
+  addDigits1 m1 (One a) b (Two c d) m2 =
+	appendTree2 m1 (node2 a b) (node2 c d) m2
+  addDigits1 m1 (One a) b (Three c d e) m2 =
+	appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits1 m1 (One a) b (Four c d e f) m2 =
+	appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits1 m1 (Two a b) c (One d) m2 =
+	appendTree2 m1 (node2 a b) (node2 c d) m2
+  addDigits1 m1 (Two a b) c (Two d e) m2 =
+	appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits1 m1 (Two a b) c (Three d e f) m2 =
+	appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits1 m1 (Two a b) c (Four d e f g) m2 =
+	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits1 m1 (Three a b c) d (One e) m2 =
+	appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits1 m1 (Three a b c) d (Two e f) m2 =
+	appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits1 m1 (Three a b c) d (Three e f g) m2 =
+	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits1 m1 (Three a b c) d (Four e f g h) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits1 m1 (Four a b c d) e (One f) m2 =
+	appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits1 m1 (Four a b c d) e (Two f g) m2 =
+	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits1 m1 (Four a b c d) e (Three f g h) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits1 m1 (Four a b c d) e (Four f g h i) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  {-# INLINABLE addDigits1 #-}
+
+  appendTree2 :: forall b. FingerTree v (Node v b) -> Node v b -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
+  appendTree2 l a b r = case (unMk1 l, unMk1 r) of
+      (Empty, _) -> a `consD` b `consD` r
+      (_, Empty) -> l `snocD` a `snocD` b
+      (Single x, _) -> x `consD` a `consD` b `consD` r
+      (_, Single x) -> l `snocD` a `snocD` b `snocD` x
+      (Deep _ pr1 m1 sf1, Deep _ pr2 m2 sf2) -> deep pr1 (addDigits2 m1 sf1 a b pr2 m2) sf2
+  {-# INLINABLE appendTree2 #-}
+
+  addDigits2 :: forall b. FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
+  addDigits2 m1 (One a) b c (One d) m2 =
+	appendTree2 m1 (node2 a b) (node2 c d) m2
+  addDigits2 m1 (One a) b c (Two d e) m2 =
+	appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits2 m1 (One a) b c (Three d e f) m2 =
+	appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits2 m1 (One a) b c (Four d e f g) m2 =
+	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits2 m1 (Two a b) c d (One e) m2 =
+	appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits2 m1 (Two a b) c d (Two e f) m2 =
+	appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits2 m1 (Two a b) c d (Three e f g) m2 =
+	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits2 m1 (Two a b) c d (Four e f g h) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits2 m1 (Three a b c) d e (One f) m2 =
+	appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits2 m1 (Three a b c) d e (Two f g) m2 =
+	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits2 m1 (Three a b c) d e (Three f g h) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits2 m1 (Three a b c) d e (Four f g h i) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits2 m1 (Four a b c d) e f (One g) m2 =
+	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits2 m1 (Four a b c d) e f (Two g h) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits2 m1 (Four a b c d) e f (Three g h i) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits2 m1 (Four a b c d) e f (Four g h i j) m2 =
+	appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
+  {-# INLINABLE addDigits2 #-}
+
+  appendTree3 :: forall b. FingerTree v (Node v b) -> Node v b -> Node v b -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
+  appendTree3 l a b c r = case (unMk1 l, unMk1 r) of
+      (Empty, _) -> a `consD` b `consD` c `consD` r
+      (_, Empty) -> l `snocD` a `snocD` b `snocD` c
+      (Single x, _) -> x `consD` a `consD` b `consD` c `consD` r
+      (_, Single x) -> l `snocD` a `snocD` b `snocD` c `snocD` x
+      (Deep _ pr1 m1 sf1, Deep _ pr2 m2 sf2) -> deep pr1 (addDigits3 m1 sf1 a b c pr2 m2) sf2
+  {-# INLINABLE appendTree3 #-}
+
+  addDigits3 :: forall b. FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Node v b -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
+  addDigits3 m1 (One a) b c d (One e) m2 =
+	appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits3 m1 (One a) b c d (Two e f) m2 =
+	appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits3 m1 (One a) b c d (Three e f g) m2 =
+	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits3 m1 (One a) b c d (Four e f g h) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits3 m1 (Two a b) c d e (One f) m2 =
+	appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits3 m1 (Two a b) c d e (Two f g) m2 =
+	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits3 m1 (Two a b) c d e (Three f g h) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits3 m1 (Two a b) c d e (Four f g h i) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits3 m1 (Three a b c) d e f (One g) m2 =
+	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits3 m1 (Three a b c) d e f (Two g h) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits3 m1 (Three a b c) d e f (Three g h i) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits3 m1 (Three a b c) d e f (Four g h i j) m2 =
+	appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
+  addDigits3 m1 (Four a b c d) e f g (One h) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits3 m1 (Four a b c d) e f g (Two h i) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits3 m1 (Four a b c d) e f g (Three h i j) m2 =
+	appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
+  addDigits3 m1 (Four a b c d) e f g (Four h i j k) m2 =
+	appendTree4 m1 (node3 a b c) (node3 d e f) (node3 g h i) (node2 j k) m2
+  {-# INLINABLE addDigits3 #-}
+
+  appendTree4 :: forall b. FingerTree v (Node v b) -> Node v b -> Node v b -> Node v b -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
+  appendTree4 l a b c d r = case (unMk1 l, unMk1 r) of
+      (Empty, _) -> a `consD` b `consD` c `consD` d `consD` r
+      (_, Empty) -> l `snocD` a `snocD` b `snocD` c `snocD` d
+      (Single x, _) -> x `consD` a `consD` b `consD` c `consD` d `consD` r
+      (_, Single x) -> l `snocD` a `snocD` b `snocD` c `snocD` d `snocD` x
+      (Deep _ pr1 m1 sf1, Deep _ pr2 m2 sf2) -> deep pr1 (addDigits4 m1 sf1 a b c d pr2 m2) sf2
+  {-# INLINABLE appendTree4 #-}
+
+  addDigits4 :: forall b. FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Node v b -> Node v b -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
+  addDigits4 m1 (One a) b c d e (One f) m2 =
+	appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits4 m1 (One a) b c d e (Two f g) m2 =
+	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits4 m1 (One a) b c d e (Three f g h) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits4 m1 (One a) b c d e (Four f g h i) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits4 m1 (Two a b) c d e f (One g) m2 =
+	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits4 m1 (Two a b) c d e f (Two g h) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits4 m1 (Two a b) c d e f (Three g h i) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits4 m1 (Two a b) c d e f (Four g h i j) m2 =
+	appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
+  addDigits4 m1 (Three a b c) d e f g (One h) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits4 m1 (Three a b c) d e f g (Two h i) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits4 m1 (Three a b c) d e f g (Three h i j) m2 =
+	appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
+  addDigits4 m1 (Three a b c) d e f g (Four h i j k) m2 =
+	appendTree4 m1 (node3 a b c) (node3 d e f) (node3 g h i) (node2 j k) m2
+  addDigits4 m1 (Four a b c d) e f g h (One i) m2 =
+	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits4 m1 (Four a b c d) e f g h (Two i j) m2 =
+	appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
+  addDigits4 m1 (Four a b c d) e f g h (Three i j k) m2 =
+	appendTree4 m1 (node3 a b c) (node3 d e f) (node3 g h i) (node2 j k) m2
+  addDigits4 m1 (Four a b c d) e f g h (Four i j k l) m2 =
+	appendTree4 m1 (node3 a b c) (node3 d e f) (node3 g h i) (node3 j k l) m2
+  {-# INLINABLE addDigits4 #-}
+
 
 {-
--- | /O(1)/. Add an element to the right end of a sequence.
--- Mnemonic: a triangle with the single element at the pointy end.
-(|>) :: forall v a. (Unbox v, Measured v a) => FingerTree v a -> a -> FingerTree v a
-t |> a = goSnoc t a where
-    goSnoc :: forall b. Measured v b => FingerTree v b -> b -> FingerTree v b
-    goSnoc t l = case unMk1 t of
-        Empty -> mk1 $ Single l
-        Single a -> deep (One a) empty' (One l)
-        Deep v pr m (Four a b c d) -> m `seq`
-           (mk1 $  Deep (v `mappend` measure l) pr (goSnoc m (node3 a b c)) (Two d l))
-        Deep v pr m sf -> mk1 $ Deep (v `mappend` measure l) pr m (snocDigit sf l)
-    {-# SPECIALISE goSnoc :: FingerTree' v (Elem a) -> Elem a -> FingerTree' v (Elem a) #-}
-    {-# SPECIALISE goSnoc :: FingerTree' v (Node v b) -> Node v b -> FingerTree' v (Node v b) #-}
-{-# INLINABLE (|>) #-}
-
-snocDigit :: Digit a -> a -> Digit a
-snocDigit (One a) b = Two a b
-snocDigit (Two a b) c = Three a b c
-snocDigit (Three a b c) d = Four a b c d
-{-# INLINABLE snocDigit #-}
 -}
 {-
 -- | /O(1)/. Is this the empty sequence?
@@ -411,250 +655,6 @@ rtailDigit (Four a b c _) = Three a b c
 -- Concatenation
 ----------------
 {-
--- | /O(log(min(n1,n2)))/. Concatenate two sequences.
-(><) :: (Unbox v, Measured v a) => FingerTree v a -> FingerTree v a -> FingerTree v a
-(><) =  appendTree0
-{-# INLINABLE (><) #-}
-
-appendTree0 :: (Unbox v, Measured v a) => FingerTree v a -> FingerTree v a -> FingerTree v a
-appendTree0 (unMk1 -> Empty) xs =
-	xs
-appendTree0 xs (unMk1 -> Empty) =
-	xs
-appendTree0 (unMk1 -> Single x) xs =
-	x <| xs
-appendTree0 xs (unMk1 -> Single x) =
-	xs |> x
-appendTree0 (unMk1 -> Deep _ pr1 m1 sf1) (unMk1 -> Deep _ pr2 m2 sf2) =
-	deep pr1 (addDigits0 m1 sf1 pr2 m2) sf2
-{-# INLINABLE appendTree0 #-}
-
-addDigits0 :: (Unbox v, Measured v a) => FingerTree v (Node v a) -> Digit a -> Digit a -> FingerTree v (Node v a) -> FingerTree v (Node v a)
-addDigits0 m1 (One a) (One b) m2 =
-	appendTree1 m1 (node2 a b) m2
-addDigits0 m1 (One a) (Two b c) m2 =
-	appendTree1 m1 (node3 a b c) m2
-addDigits0 m1 (One a) (Three b c d) m2 =
-	appendTree2 m1 (node2 a b) (node2 c d) m2
-addDigits0 m1 (One a) (Four b c d e) m2 =
-	appendTree2 m1 (node3 a b c) (node2 d e) m2
-addDigits0 m1 (Two a b) (One c) m2 =
-	appendTree1 m1 (node3 a b c) m2
-addDigits0 m1 (Two a b) (Two c d) m2 =
-	appendTree2 m1 (node2 a b) (node2 c d) m2
-addDigits0 m1 (Two a b) (Three c d e) m2 =
-	appendTree2 m1 (node3 a b c) (node2 d e) m2
-addDigits0 m1 (Two a b) (Four c d e f) m2 =
-	appendTree2 m1 (node3 a b c) (node3 d e f) m2
-addDigits0 m1 (Three a b c) (One d) m2 =
-	appendTree2 m1 (node2 a b) (node2 c d) m2
-addDigits0 m1 (Three a b c) (Two d e) m2 =
-	appendTree2 m1 (node3 a b c) (node2 d e) m2
-addDigits0 m1 (Three a b c) (Three d e f) m2 =
-	appendTree2 m1 (node3 a b c) (node3 d e f) m2
-addDigits0 m1 (Three a b c) (Four d e f g) m2 =
-	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
-addDigits0 m1 (Four a b c d) (One e) m2 =
-	appendTree2 m1 (node3 a b c) (node2 d e) m2
-addDigits0 m1 (Four a b c d) (Two e f) m2 =
-	appendTree2 m1 (node3 a b c) (node3 d e f) m2
-addDigits0 m1 (Four a b c d) (Three e f g) m2 =
-	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
-addDigits0 m1 (Four a b c d) (Four e f g h) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
-{-# INLINABLE addDigits0 #-}
-
-appendTree1 :: (Unbox v, Measured v a) => FingerTree v a -> a -> FingerTree v a -> FingerTree v a
-appendTree1 (unMk1 -> Empty) a xs =
-	a <| xs
-appendTree1 xs a (unMk1 -> Empty) =
-	xs |> a
-appendTree1 (unMk1 -> Single x) a xs =
-	x <| a <| xs
-appendTree1 xs a (unMk1 -> Single x) =
-	xs |> a |> x
-appendTree1 (unMk1 -> Deep _ pr1 m1 sf1) a (unMk1 -> Deep _ pr2 m2 sf2) =
-	deep pr1 (addDigits1 m1 sf1 a pr2 m2) sf2
-{-# INLINABLE appendTree1 #-}
-
-addDigits1 :: (Unbox v, Measured v a) => FingerTree v (Node v a) -> Digit a -> a -> Digit a -> FingerTree v (Node v a) -> FingerTree v (Node v a)
-addDigits1 m1 (One a) b (One c) m2 =
-	appendTree1 m1 (node3 a b c) m2
-addDigits1 m1 (One a) b (Two c d) m2 =
-	appendTree2 m1 (node2 a b) (node2 c d) m2
-addDigits1 m1 (One a) b (Three c d e) m2 =
-	appendTree2 m1 (node3 a b c) (node2 d e) m2
-addDigits1 m1 (One a) b (Four c d e f) m2 =
-	appendTree2 m1 (node3 a b c) (node3 d e f) m2
-addDigits1 m1 (Two a b) c (One d) m2 =
-	appendTree2 m1 (node2 a b) (node2 c d) m2
-addDigits1 m1 (Two a b) c (Two d e) m2 =
-	appendTree2 m1 (node3 a b c) (node2 d e) m2
-addDigits1 m1 (Two a b) c (Three d e f) m2 =
-	appendTree2 m1 (node3 a b c) (node3 d e f) m2
-addDigits1 m1 (Two a b) c (Four d e f g) m2 =
-	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
-addDigits1 m1 (Three a b c) d (One e) m2 =
-	appendTree2 m1 (node3 a b c) (node2 d e) m2
-addDigits1 m1 (Three a b c) d (Two e f) m2 =
-	appendTree2 m1 (node3 a b c) (node3 d e f) m2
-addDigits1 m1 (Three a b c) d (Three e f g) m2 =
-	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
-addDigits1 m1 (Three a b c) d (Four e f g h) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
-addDigits1 m1 (Four a b c d) e (One f) m2 =
-	appendTree2 m1 (node3 a b c) (node3 d e f) m2
-addDigits1 m1 (Four a b c d) e (Two f g) m2 =
-	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
-addDigits1 m1 (Four a b c d) e (Three f g h) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
-addDigits1 m1 (Four a b c d) e (Four f g h i) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
-{-# INLINABLE addDigits1 #-}
-
-appendTree2 :: (Unbox v, Measured v a) => FingerTree v a -> a -> a -> FingerTree v a -> FingerTree v a
-appendTree2 (unMk1 -> Empty) a b xs =
-	a <| b <| xs
-appendTree2 xs a b (unMk1 -> Empty) =
-	xs |> a |> b
-appendTree2 (unMk1 -> Single x) a b xs =
-	x <| a <| b <| xs
-appendTree2 xs a b (unMk1 -> Single x) =
-	xs |> a |> b |> x
-appendTree2 (unMk1 -> Deep _ pr1 m1 sf1) a b (unMk1 -> Deep _ pr2 m2 sf2) =
-	deep pr1 (addDigits2 m1 sf1 a b pr2 m2) sf2
-{-# INLINABLE appendTree2 #-}
-
-addDigits2 :: (Unbox v, Measured v a) => FingerTree v (Node v a) -> Digit a -> a -> a -> Digit a -> FingerTree v (Node v a) -> FingerTree v (Node v a)
-addDigits2 m1 (One a) b c (One d) m2 =
-	appendTree2 m1 (node2 a b) (node2 c d) m2
-addDigits2 m1 (One a) b c (Two d e) m2 =
-	appendTree2 m1 (node3 a b c) (node2 d e) m2
-addDigits2 m1 (One a) b c (Three d e f) m2 =
-	appendTree2 m1 (node3 a b c) (node3 d e f) m2
-addDigits2 m1 (One a) b c (Four d e f g) m2 =
-	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
-addDigits2 m1 (Two a b) c d (One e) m2 =
-	appendTree2 m1 (node3 a b c) (node2 d e) m2
-addDigits2 m1 (Two a b) c d (Two e f) m2 =
-	appendTree2 m1 (node3 a b c) (node3 d e f) m2
-addDigits2 m1 (Two a b) c d (Three e f g) m2 =
-	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
-addDigits2 m1 (Two a b) c d (Four e f g h) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
-addDigits2 m1 (Three a b c) d e (One f) m2 =
-	appendTree2 m1 (node3 a b c) (node3 d e f) m2
-addDigits2 m1 (Three a b c) d e (Two f g) m2 =
-	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
-addDigits2 m1 (Three a b c) d e (Three f g h) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
-addDigits2 m1 (Three a b c) d e (Four f g h i) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
-addDigits2 m1 (Four a b c d) e f (One g) m2 =
-	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
-addDigits2 m1 (Four a b c d) e f (Two g h) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
-addDigits2 m1 (Four a b c d) e f (Three g h i) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
-addDigits2 m1 (Four a b c d) e f (Four g h i j) m2 =
-	appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
-{-# INLINABLE addDigits2 #-}
-
-appendTree3 :: (Unbox v, Measured v a) => FingerTree v a -> a -> a -> a -> FingerTree v a -> FingerTree v a
-appendTree3 (unMk1 -> Empty) a b c xs =
-	a <| b <| c <| xs
-appendTree3 xs a b c (unMk1 -> Empty) =
-	xs |> a |> b |> c
-appendTree3 (unMk1 -> Single x) a b c xs =
-	x <| a <| b <| c <| xs
-appendTree3 xs a b c (unMk1 -> Single x) =
-	xs |> a |> b |> c |> x
-appendTree3 (unMk1 -> Deep _ pr1 m1 sf1) a b c (unMk1 -> Deep _ pr2 m2 sf2) =
-	deep pr1 (addDigits3 m1 sf1 a b c pr2 m2) sf2
-{-# INLINABLE appendTree3 #-}
-
-addDigits3 :: (Unbox v, Measured v a) => FingerTree v (Node v a) -> Digit a -> a -> a -> a -> Digit a -> FingerTree v (Node v a) -> FingerTree v (Node v a)
-addDigits3 m1 (One a) b c d (One e) m2 =
-	appendTree2 m1 (node3 a b c) (node2 d e) m2
-addDigits3 m1 (One a) b c d (Two e f) m2 =
-	appendTree2 m1 (node3 a b c) (node3 d e f) m2
-addDigits3 m1 (One a) b c d (Three e f g) m2 =
-	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
-addDigits3 m1 (One a) b c d (Four e f g h) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
-addDigits3 m1 (Two a b) c d e (One f) m2 =
-	appendTree2 m1 (node3 a b c) (node3 d e f) m2
-addDigits3 m1 (Two a b) c d e (Two f g) m2 =
-	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
-addDigits3 m1 (Two a b) c d e (Three f g h) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
-addDigits3 m1 (Two a b) c d e (Four f g h i) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
-addDigits3 m1 (Three a b c) d e f (One g) m2 =
-	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
-addDigits3 m1 (Three a b c) d e f (Two g h) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
-addDigits3 m1 (Three a b c) d e f (Three g h i) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
-addDigits3 m1 (Three a b c) d e f (Four g h i j) m2 =
-	appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
-addDigits3 m1 (Four a b c d) e f g (One h) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
-addDigits3 m1 (Four a b c d) e f g (Two h i) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
-addDigits3 m1 (Four a b c d) e f g (Three h i j) m2 =
-	appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
-addDigits3 m1 (Four a b c d) e f g (Four h i j k) m2 =
-	appendTree4 m1 (node3 a b c) (node3 d e f) (node3 g h i) (node2 j k) m2
-{-# INLINABLE addDigits3 #-}
-
-appendTree4 :: (Unbox v, Measured v a) => FingerTree v a -> a -> a -> a -> a -> FingerTree v a -> FingerTree v a
-appendTree4 (unMk1 -> Empty) a b c d xs =
-	a <| b <| c <| d <| xs
-appendTree4 xs a b c d (unMk1 -> Empty) =
-	xs |> a |> b |> c |> d
-appendTree4 (unMk1 -> Single x) a b c d xs =
-	x <| a <| b <| c <| d <| xs
-appendTree4 xs a b c d (unMk1 -> Single x) =
-	xs |> a |> b |> c |> d |> x
-appendTree4 (unMk1 -> Deep _ pr1 m1 sf1) a b c d (unMk1 -> Deep _ pr2 m2 sf2) =
-	deep pr1 (addDigits4 m1 sf1 a b c d pr2 m2) sf2
-{-# INLINABLE appendTree4 #-}
-
-addDigits4 :: (Unbox v, Measured v a) => FingerTree v (Node v a) -> Digit a -> a -> a -> a -> a -> Digit a -> FingerTree v (Node v a) -> FingerTree v (Node v a)
-addDigits4 m1 (One a) b c d e (One f) m2 =
-	appendTree2 m1 (node3 a b c) (node3 d e f) m2
-addDigits4 m1 (One a) b c d e (Two f g) m2 =
-	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
-addDigits4 m1 (One a) b c d e (Three f g h) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
-addDigits4 m1 (One a) b c d e (Four f g h i) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
-addDigits4 m1 (Two a b) c d e f (One g) m2 =
-	appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
-addDigits4 m1 (Two a b) c d e f (Two g h) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
-addDigits4 m1 (Two a b) c d e f (Three g h i) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
-addDigits4 m1 (Two a b) c d e f (Four g h i j) m2 =
-	appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
-addDigits4 m1 (Three a b c) d e f g (One h) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
-addDigits4 m1 (Three a b c) d e f g (Two h i) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
-addDigits4 m1 (Three a b c) d e f g (Three h i j) m2 =
-	appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
-addDigits4 m1 (Three a b c) d e f g (Four h i j k) m2 =
-	appendTree4 m1 (node3 a b c) (node3 d e f) (node3 g h i) (node2 j k) m2
-addDigits4 m1 (Four a b c d) e f g h (One i) m2 =
-	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
-addDigits4 m1 (Four a b c d) e f g h (Two i j) m2 =
-	appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
-addDigits4 m1 (Four a b c d) e f g h (Three i j k) m2 =
-	appendTree4 m1 (node3 a b c) (node3 d e f) (node3 g h i) (node2 j k) m2
-addDigits4 m1 (Four a b c d) e f g h (Four i j k l) m2 =
-	appendTree4 m1 (node3 a b c) (node3 d e f) (node3 g h i) (node3 j k l) m2
-{-# INLINABLE addDigits4 #-}
 -}
 ----------------
 -- 4.4 Splitting
