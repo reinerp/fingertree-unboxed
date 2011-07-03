@@ -41,49 +41,25 @@ empty = Seq F.empty
 singleton :: a -> Seq a
 singleton = Seq . F.singleton . Elem
 
--- fromList = undefined
-
--- {-# SPECIALISE F.dict :: BigDict Size (Elem a) #-}
-{-
 (<|) :: a -> Seq a -> Seq a
 el <| (Seq a) = Seq (Elem el F.<| a)
-{-# SPECIALISE (F.<|) :: Elem a -> FingerTree Size (Elem a) -> FingerTree Size (Elem a) #-}
 
 (><) :: Seq a -> Seq a -> Seq a
 (Seq l) >< (Seq r) = Seq (l F.>< r)
-{-# SPECIALISE (F.><) :: FingerTree Size (Elem a) -> FingerTree Size (Elem a) -> FingerTree Size (Elem a) #-}
--}
-{-
+
 (|>) :: Seq a -> a -> Seq a
 (Seq a) |> el = Seq (a F.|> Elem el)
-{-# SPECIALISE (F.|>) :: FingerTree Size (Elem a) -> Elem a -> FingerTree Size (Elem a) #-}
--}
 
-{-
-null :: Seq a -> Bool
-null (Seq a) = F.null a
--}
-{-
+--null :: Seq a -> Bool
+--null (Seq a) = F.null a
+
 viewl :: Seq a -> ViewL Seq a
 viewl (Seq a) = case F.viewl a of
     EmptyL -> EmptyL
     Elem h :< t -> h :< Seq t
-{-# SPECIALISE F.viewl :: FingerTree Size (Elem a) -> ViewL (FingerTree Size) (Elem a) #-}
-
 
 length :: Seq a -> Int
 length (Seq a) = unSize (F.measure a)
--- {-# SPECIALISE F.measure :: FingerTree Size (Elem a) -> Size #-}
--}
 
---split n (Seq a) = case isplit n a of (l, r) -> (Seq l, Seq r)
-
--- {-# SPECIALISE isplit :: Int -> FingerTree Size (Elem a) -> (FingerTree Size (Elem a), FingerTree Size (Elem a)) #-}
--- isplit :: Measured Size a => Int -> FingerTree Size a -> (FingerTree Size a, FingerTree Size a)
--- isplit n a = n `seq` F.split (\(Size s) -> s > n) a
-
-mySplit :: Int -> Seq a -> (Seq a, Seq a)
-mySplit n (Seq a) = n `seq` case F.split (\(Size s) -> s>n) a of (l, r) -> (Seq l, Seq r)
--- {-# SPECIALISE INLINE F.split :: (Size -> Bool) -> FingerTree Size (Elem a) -> (FingerTree Size (Elem a), FingerTree Size (Elem a)) #-}
-
--- {-# SPECIALIZE split :: (Size -> Bool) -> FingerTree Size (SeqElem a) -> (FingerTree Size (SeqElem a), FingerTree Size (SeqElem a)) #-}
+split :: Int -> Seq a -> (Seq a, Seq a)
+split n (Seq a) = n `seq` case F.split (\(Size s) -> s>n) a of (l, r) -> (Seq l, Seq r)
