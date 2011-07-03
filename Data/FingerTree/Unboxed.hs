@@ -1,3 +1,5 @@
+{-# LANGUAGE UnboxedTuples, MagicHash, BangPatterns #-}
+
 -- rules for inlining:
 --   * every function should be marked INLINABLE or INLINE, to allow specialisation on the type classes
 --   * functions in type classes should be marked INLINE (because INLINABLE doesn't work, I think)
@@ -140,7 +142,10 @@ instance (Unbox v, Measured v a, Show a) => Show (FingerTree v a) where
 	showsPrec p xs = showParen (p > 10) $
 		showString "fromList " . shows (toList xs)
 
-data Split t a = Split t a t
+--data Split t a = Split t a t
+type Split t a = (# t, a, t #)
+mkSplit :: t -> a -> t -> Split t a
+mkSplit a b c = (# a, b, c #)
   
 ----------------------------------------------------------------------------------------------------
 --                                         Some cheap typeclasses                                 --
@@ -631,74 +636,78 @@ dict = BigDict{..} where
   splitD :: (v -> Bool) -> FingerTree v a -> (FingerTree v a, FingerTree v a)
   splitD _p (unMk1 -> Empty)  =  (empty, empty)
   splitD p xs
-    | p (myMeasure xs) =  case splitTree mempty xs of Split l x r -> (l, x <| r)
+    | p (myMeasure xs) =  case splitTree mempty xs of (# l, x, r #) -> (l, x <| r)
     | otherwise	=  (xs, empty)
      where
 
     splitTree :: forall b. Measured v b => v -> FingerTree v b -> Split (FingerTree v b) b
-    splitTree i tree = i `seq` case unMk1 tree of
-        Empty -> Split (error "splitTree of empty tree") undefined undefined -- hack to allow CPR
-        Single x -> Split empty x empty
+    splitTree i tree = case unMk1 tree of
+        Empty -> i `seq` mkSplit (error "splitTree of empty tree") undefined undefined -- hack to allow (manual) CPR
+        Single x -> i `seq` mkSplit empty x empty
         Deep _ pr m sf 
           | p vpr ->  case splitDigit i pr of
-                         Split l x r -> Split (maybe empty digitToTree l) x (deepL r m sf)
+                         (# l, x, r #) -> mkSplit (maybe empty digitToTree l) x (deepL r m sf)
           | p vm ->  case splitTree vpr m of
-                       Split ml xs mr -> case splitNode (vpr `mappendVal` ml) xs of
-                         Split l x r -> Split (deepR pr  ml l) x (deepL r mr sf)
+                       (# ml, xs, mr #) -> case splitNode (vpr `mappend` myMeasure ml) xs of
+                         (# l, x, r #) -> mkSplit (deepR pr  ml l) x (deepL r mr sf)
+                           where 
           | otherwise -> case splitDigit vm sf of
-                            Split l x r -> Split (deepR pr  m  l) x (maybe empty digitToTree r)
+                            (# l, x, r #) -> mkSplit (deepR pr  m  l) x (maybe empty digitToTree r)
          where 
-               vpr =  i    `mappend`  myMeasure pr
-               vm =  vpr  `mappendVal` m
-    {-# SPECIALIZE INLINE splitTree :: v -> FingerTree v a -> Split (FingerTree v a) a #-}
+           vpr =  i    `mappend`  myMeasure pr
+           vm =  vpr  `mappend` myMeasure m
+    {-# SPECIALIZE splitTree :: v -> FingerTree v a -> Split (FingerTree v a) a #-}
     {-# SPECIALIZE splitTree :: v -> FingerTree v (Node v b) -> Split (FingerTree v (Node v b)) (Node v b) #-}
-    {-# INLINABLE splitTree #-}  
   
     splitNode :: forall b. Measured v b => v -> Node v b -> Split (Maybe (Digit b)) b
     splitNode i node = case unMk1 node of
       Node2 _ a b 
-        | p va       -> Split Nothing a (Just (One b))
-        | otherwise  -> Split (Just (One a)) b Nothing
+        | p va       -> mkSplit Nothing a (Just (One b))
+        | otherwise  -> mkSplit (Just (One a)) b Nothing
        where	va	= i `mappend` myMeasure a
       Node3 _ a b c
-        | p va	-> Split Nothing a (Just (Two b c))
-        | p vab	-> Split (Just (One a)) b (Just (One c))
-        | otherwise	-> Split (Just (Two a b)) c Nothing
+        | p va	-> mkSplit Nothing a (Just (Two b c))
+        | p vab	-> mkSplit (Just (One a)) b (Just (One c))
+        | otherwise	-> mkSplit (Just (Two a b)) c Nothing
        where va  = i `mappend` myMeasure a
              vab = va `mappend` myMeasure b
-    {-# INLINE splitNode #-}
+    {-# SPECIALISE splitNode :: v -> Node v a -> Split (Maybe (Digit a)) a #-}
+    {-# SPECIALISE splitNode :: v -> Node v (Node v b) -> Split (Maybe (Digit (Node v b))) (Node v b) #-}
     
     splitDigit :: forall b. Measured v b => v -> Digit b -> Split (Maybe (Digit b)) b
-    splitDigit i (One a) = i `seq` Split Nothing a Nothing
+    splitDigit i (One a) = i `seq` mkSplit Nothing a Nothing
     splitDigit i (Two a b)
-      | p va	= Split Nothing a (Just (One b))
-      | otherwise	= Split (Just (One a)) b Nothing
+      | p va	= mkSplit Nothing a (Just (One b))
+      | otherwise	= mkSplit (Just (One a)) b Nothing
       where	va	= i `mappend` myMeasure a
     splitDigit i (Three a b c)
-      | p va	= Split Nothing a (Just (Two b c))
-      | p vab	= Split (Just (One a)) b (Just (One c))
-      | otherwise	= Split (Just (Two a b)) c Nothing
+      | p va	= mkSplit Nothing a (Just (Two b c))
+      | p vab	= mkSplit (Just (One a)) b (Just (One c))
+      | otherwise	= mkSplit (Just (Two a b)) c Nothing
       where va	= i `mappend` myMeasure a
             vab	= va `mappend` myMeasure b
     splitDigit i (Four a b c d)
-      | p va	= Split Nothing a (Just (Three b c d))
-      | p vab	= Split (Just (One a)) b (Just (Two c d))
-      | p vabc	= Split (Just (Two a b)) c (Just (One d))
-      | otherwise	= Split (Just (Three a b c)) d Nothing
+      | p va	= mkSplit Nothing a (Just (Three b c d))
+      | p vab	= mkSplit (Just (One a)) b (Just (Two c d))
+      | p vabc	= mkSplit (Just (Two a b)) c (Just (One d))
+      | otherwise	= mkSplit (Just (Three a b c)) d Nothing
       where va	= i `mappend` myMeasure a
             vab	= va `mappend` myMeasure b
             vabc	= vab `mappend` myMeasure c
-    {-# INLINE splitDigit #-}
+    {-# SPECIALISE splitDigit :: v -> Digit a -> Split (Maybe (Digit a)) a #-}
+    {-# SPECIALISE splitDigit :: v -> Digit (Node v b) -> Split (Maybe (Digit (Node v b))) (Node v b) #-}
 
   deepL :: forall b. Measured v b => Maybe (Digit b) -> FingerTree v (Node v b) -> Digit b -> FingerTree v b
   deepL Nothing m sf	=   rotL m sf
   deepL (Just pr) m sf	=   deep pr m sf
-  {-# INLINE deepL #-}
+  {-# SPECIALISE deepL :: Maybe (Digit a) -> FingerTree v (Node v a) -> Digit a -> FingerTree v a #-}
+  {-# SPECIALISE deepL :: Maybe (Digit (Node v b)) -> FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> FingerTree v (Node v b) #-}
   
   deepR :: forall b. Measured v b => Digit b -> FingerTree v (Node v b) -> Maybe (Digit b) -> FingerTree v b
   deepR pr m Nothing	=   rotR pr m
   deepR pr m (Just sf)	=   deep pr m sf
-  {-# INLINE deepR #-}
+  {-# SPECIALISE deepR :: Digit a -> FingerTree v (Node v a) -> Maybe (Digit a) -> FingerTree v a #-}
+  {-# SPECIALISE deepR :: Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> Maybe (Digit (Node v b)) -> FingerTree v (Node v b) #-}
   
 
 {-
