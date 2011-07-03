@@ -361,14 +361,6 @@ dict = BigDict{..} where
   {-# INLINABLE appendD #-}
 
   appendTree0 :: FingerTree v a -> FingerTree v a -> FingerTree v a
-  appendTree0 l r = case (unMk1 l, unMk1 r) of
-    (Empty, _) -> r
-    (_, Empty) -> l
-    (Single x, _) -> x `consD` r
-    (_, Single x) -> l `snocD` x
-    (Deep _ pr1 m1 sf1, Deep _ pr2 m2 sf2) -> deep pr1 (addDigits0 m1 sf1 pr2 m2) sf2
-  {-# INLINABLE appendTree0 #-}
-{-
   appendTree0 l r = case unMk1 l of
       Empty -> r
       Single x -> x `consD` r -- assume that the "r=Empty" check will be done by 'consD'
@@ -377,7 +369,6 @@ dict = BigDict{..} where
           Single x -> l `snocD` x
           Deep _ pr2 m2 sf2 -> deep pr1 (addDigits0 m1 sf1 pr2 m2) sf2
   {-# INLINABLE appendTree0 #-}
--}
 
   addDigits0 :: FingerTree v (Node v a) -> Digit a -> Digit a -> FingerTree v (Node v a) -> FingerTree v (Node v a)
   addDigits0 m1 (One a) (One b) m2 =
@@ -415,12 +406,13 @@ dict = BigDict{..} where
   {-# INLINABLE addDigits0 #-}
 
   appendTree1 :: forall b. FingerTree v (Node v b) -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
-  appendTree1 l a r = case (unMk1 l, unMk1 r) of
-      (Empty, _) -> a `consD` r
-      (_, Empty) -> l `snocD` a
-      (Single x, _) -> x `consD` a `consD` r
-      (_, Single x) -> l `snocD` a `snocD` x
-      (Deep _ pr1 m1 sf1, Deep _ pr2 m2 sf2) -> deep pr1 (addDigits1 m1 sf1 a pr2 m2) sf2
+  appendTree1 l a r = case unMk1 l of
+      Empty -> a `consD` r
+      Single x -> x `consD` a `consD` r
+      Deep _ pr1 m1 sf1 -> case unMk1 r of
+          Empty -> l `snocD` a
+          Single x -> l `snocD` a `snocD` x
+          Deep _ pr2 m2 sf2 -> deep pr1 (addDigits1 m1 sf1 a pr2 m2) sf2
   {-# INLINABLE appendTree1 #-}
 
   addDigits1 :: forall b. FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
@@ -459,12 +451,13 @@ dict = BigDict{..} where
   {-# INLINABLE addDigits1 #-}
 
   appendTree2 :: forall b. FingerTree v (Node v b) -> Node v b -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
-  appendTree2 l a b r = case (unMk1 l, unMk1 r) of
-      (Empty, _) -> a `consD` b `consD` r
-      (_, Empty) -> l `snocD` a `snocD` b
-      (Single x, _) -> x `consD` a `consD` b `consD` r
-      (_, Single x) -> l `snocD` a `snocD` b `snocD` x
-      (Deep _ pr1 m1 sf1, Deep _ pr2 m2 sf2) -> deep pr1 (addDigits2 m1 sf1 a b pr2 m2) sf2
+  appendTree2 l a b r = case unMk1 l of
+      Empty -> a `consD` b `consD` r
+      Single x -> x `consD` a `consD` b `consD` r
+      Deep _ pr1 m1 sf1 -> case unMk1 r of
+          Empty -> l `snocD` a `snocD` b
+          Single x -> l `snocD` a `snocD` b `snocD` x
+          Deep _ pr2 m2 sf2 -> deep pr1 (addDigits2 m1 sf1 a b pr2 m2) sf2
   {-# INLINABLE appendTree2 #-}
 
   addDigits2 :: forall b. FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
@@ -503,12 +496,13 @@ dict = BigDict{..} where
   {-# INLINABLE addDigits2 #-}
 
   appendTree3 :: forall b. FingerTree v (Node v b) -> Node v b -> Node v b -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
-  appendTree3 l a b c r = case (unMk1 l, unMk1 r) of
-      (Empty, _) -> a `consD` b `consD` c `consD` r
-      (_, Empty) -> l `snocD` a `snocD` b `snocD` c
-      (Single x, _) -> x `consD` a `consD` b `consD` c `consD` r
-      (_, Single x) -> l `snocD` a `snocD` b `snocD` c `snocD` x
-      (Deep _ pr1 m1 sf1, Deep _ pr2 m2 sf2) -> deep pr1 (addDigits3 m1 sf1 a b c pr2 m2) sf2
+  appendTree3 l a b c r = case unMk1 l of
+      Empty -> a `consD` b `consD` c `consD` r
+      Single x -> x `consD` a `consD` b `consD` c `consD` r
+      Deep _ pr1 m1 sf1 -> case unMk1 r of
+          Empty -> l `snocD` a `snocD` b `snocD` c
+          Single x -> l `snocD` a `snocD` b `snocD` c `snocD` x
+          Deep _ pr2 m2 sf2 -> deep pr1 (addDigits3 m1 sf1 a b c pr2 m2) sf2
   {-# INLINABLE appendTree3 #-}
 
   addDigits3 :: forall b. FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Node v b -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
@@ -547,12 +541,13 @@ dict = BigDict{..} where
   {-# INLINABLE addDigits3 #-}
 
   appendTree4 :: forall b. FingerTree v (Node v b) -> Node v b -> Node v b -> Node v b -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
-  appendTree4 l a b c d r = case (unMk1 l, unMk1 r) of
-      (Empty, _) -> a `consD` b `consD` c `consD` d `consD` r
-      (_, Empty) -> l `snocD` a `snocD` b `snocD` c `snocD` d
-      (Single x, _) -> x `consD` a `consD` b `consD` c `consD` d `consD` r
-      (_, Single x) -> l `snocD` a `snocD` b `snocD` c `snocD` d `snocD` x
-      (Deep _ pr1 m1 sf1, Deep _ pr2 m2 sf2) -> deep pr1 (addDigits4 m1 sf1 a b c d pr2 m2) sf2
+  appendTree4 l a b c d r = case unMk1 l of
+      Empty -> a `consD` b `consD` c `consD` d `consD` r
+      Single x -> x `consD` a `consD` b `consD` c `consD` d `consD` r
+      Deep _ pr1 m1 sf1 -> case unMk1 r of
+          Empty -> l `snocD` a `snocD` b `snocD` c `snocD` d
+          Single x -> l `snocD` a `snocD` b `snocD` c `snocD` d `snocD` x
+          Deep _ pr2 m2 sf2 -> deep pr1 (addDigits4 m1 sf1 a b c d pr2 m2) sf2
   {-# INLINABLE appendTree4 #-}
 
   addDigits4 :: forall b. FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Node v b -> Node v b -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
