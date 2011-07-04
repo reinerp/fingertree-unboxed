@@ -1,4 +1,18 @@
-{-# LANGUAGE UnboxedTuples, MagicHash, BangPatterns #-}
+{-# LANGUAGE   MultiParamTypeClasses,
+                 FunctionalDependencies,
+                 FlexibleInstances,
+                 UndecidableInstances,
+                 TemplateHaskell,
+                 TypeFamilies,
+                 FlexibleContexts,
+                 ViewPatterns,
+                 StandaloneDeriving,
+                 ScopedTypeVariables,
+                 GeneralizedNewtypeDeriving,
+                 TypeSynonymInstances,
+                 RecordWildCards,
+                 NoMonomorphismRestriction,
+                 UnboxedTuples, MagicHash, BangPatterns #-}
 
 -- rules for inlining:
 --   * every function should be marked INLINABLE or INLINE, to allow specialisation on the type classes
@@ -200,9 +214,18 @@ data BigDict v a =
 newtype MeasuredD v a = MeasuredD { measureD :: a -> v}
 
 {-# INLINABLE empty #-}
-empty = emptyD dict
+empty :: Unbox v => FingerTree v a
+empty = mk1 Empty
+
 {-# INLINABLE singleton #-}
-singleton = singletonD dict
+singleton :: Unbox v => a -> FingerTree v a
+singleton a = mk1 (Single a)
+
+--{-# INLINE empty #-}
+--empty = emptyD dict
+-- {-# INLINABLE singleton #-}
+--singleton = singletonD dict
+
 {-# INLINABLE (<|) #-}
 (<|) = consD dict
 {-# INLINABLE (|>) #-}
