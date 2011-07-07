@@ -17,6 +17,10 @@ instance Monoid Size where
     {-# INLINE mempty #-}
     mempty = Size 0
 
+instance MaybeGroup Size where
+    {-# INLINE trySubtract #-}
+    trySubtract (Size a) (Size b) _ = Size (a - b)
+
 instance Measured Size (Elem a) where
     {-# INLINE measure #-}
     measure _ = Size 1

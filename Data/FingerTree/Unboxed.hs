@@ -21,6 +21,7 @@
 -- | A copy-paste reimplementation of Ross Paterson's Data.FingerTree for which the measurement is unboxed.
 module Data.FingerTree.Unboxed (
 	FingerTree,
+        MaybeGroup(..),
 	Measured(..),
 	-- * Construction
 	empty, singleton,
@@ -179,8 +180,18 @@ instance Unbox v => Foldable (Node v) where
 --        {-# INLINABLE foldMap #-}
         {-# INLINE foldMap #-}
 
+class Monoid v => MaybeGroup v where
+    -- | If subtract is supported:
+    --
+    -- > trySubtract a b c = a - b
+    --
+    -- otherwise:
+    --
+    -- > trySubtract a b c = c
+    trySubtract :: v -> v -> v -> v
+
 -- | Things that can be measured.
-class (Monoid v) => Measured v a | a -> v where
+class (MaybeGroup v) => Measured v a | a -> v where
 	measure :: a -> v
 
 instance Measured v a => Measured v (Digit a) where
@@ -188,7 +199,7 @@ instance Measured v a => Measured v (Digit a) where
     {-# INLINABLE measure #-}
 --    {-# INLINE measure #-}
 
-instance (Monoid v, Unbox v) => Measured v (Node v a) where
+instance (MaybeGroup v, Unbox v) => Measured v (Node v a) where
     measure node = case unMk1 node of
         Node2 v _ _ -> v
         Node3 v _ _ _ -> v
@@ -345,9 +356,9 @@ dict = BigDict{..} where
   viewlD f = case unMk1 f of
     Empty -> EmptyL
     Single x -> x :< empty'
-    Deep _ pr m sf -> case viewlDigit pr of
+    Deep v pr m sf -> case viewlDigit pr of
        Left x -> x :< rotL m sf
-       Right (x, pr') -> x :< deep pr' m sf
+       Right (x, pr') -> x :< mk1 (Deep (trySubtract v (myMeasure x) (myMeasure pr' `mappend` myMeasure m `mappend` myMeasure sf)) pr' m sf)
   {-# SPECIALISE viewlD :: FingerTree v a -> ViewL (FingerTree v) a #-}
   {-# SPECIALISE viewlD :: FingerTree v (Node v b) -> ViewL (FingerTree v) (Node v b) #-}
 
@@ -382,9 +393,9 @@ dict = BigDict{..} where
   viewrD f = case unMk1 f of
       Empty -> EmptyR
       Single x -> empty' :> x
-      Deep _ pr m sf -> case viewrDigit sf of
+      Deep v pr m sf -> case viewrDigit sf of
           Left x -> rotR pr m :> x
-          Right (sf', x) -> deep pr m sf' :> x
+          Right (sf', x) -> mk1 (Deep (trySubtract v (myMeasure x) (myMeasure pr `mappend` myMeasure m `mappend` myMeasure sf')) pr m sf') :> x
   {-# SPECIALISE viewrD :: FingerTree v a -> ViewR (FingerTree v) a #-}
   {-# SPECIALISE viewrD :: FingerTree v (Node v b) -> ViewR (FingerTree v) (Node v b) #-}
 
