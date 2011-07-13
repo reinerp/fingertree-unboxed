@@ -219,7 +219,7 @@ data BigDict v a =
      viewlD :: FingerTree v a -> ViewL (FingerTree v) a,
      viewrD :: FingerTree v a -> ViewR (FingerTree v) a,
      appendD :: FingerTree v a -> FingerTree v a -> FingerTree v a,
-     splitD :: (v -> Bool) -> FingerTree v a -> (FingerTree v a, FingerTree v a)
+     splitD :: (v -> Bool) -> FingerTree v a -> (FingerTree v a, a, FingerTree v a)
     }
 
 newtype MeasuredD v a = MeasuredD { measureD :: a -> v}
@@ -645,13 +645,13 @@ dict = BigDict{..} where
   splitError = error "splitTree of empty tree (possible violation of monoid invariant?)"
   
   -- | /O(log(min(i,n-i)))/. Split a sequence at a point where the predicate
-  -- on the accumulated measure changes from 'False' to 'True'.
+  -- on the accumulated measure changes from 'False' to 'True'. Also focuses on the element at which the change occurred.
   {-# INLINE splitD #-}
-  splitD :: (v -> Bool) -> FingerTree v a -> (FingerTree v a, FingerTree v a)
+  splitD :: (v -> Bool) -> FingerTree v a -> (FingerTree v a, a, FingerTree v a)
   splitD p t = case unMk1 t of
-      Empty -> (empty, empty)
-      _ | p (myMeasure t) -> case splitTree mempty t of (# l, x, r #) -> (l, x <| r)
-      _ | otherwise -> (t, empty)
+      Empty -> error "empty" -- Nothing -- (empty, empty)
+      _ | p (myMeasure t) -> case splitTree mempty t of (# l, x, r #) -> (l, x, r)
+      _ | otherwise -> error "not found" -- (t, empty)
      where
 
     -- we manually CPR this call, because GHC apparently doesn't want to
