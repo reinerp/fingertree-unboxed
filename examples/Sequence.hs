@@ -7,7 +7,7 @@ import Data.Monoid
 import Data.FingerTree.Unboxed as F
 import Data.Unboxed
 
-newtype Size = Size { unSize :: Int }
+data Size = Size { unSize :: {-# UNPACK #-} !Int }
 newtype Elem a = Elem { unElem :: a }
 newtype Seq a = Seq { unSeq :: FingerTree Size (Elem a) }
 
@@ -62,8 +62,11 @@ viewl (Seq a) = case F.viewl a of
     EmptyL -> EmptyL
     Elem h :< t -> h :< Seq t
 
-length :: Seq a -> Int
-length (Seq a) = unSize (F.measure a)
+--length :: Seq a -> Int
+--length (Seq a) = unSize (F.measure a)
+
+instance SplitPred Size Size where
+  checkPred (Size n) (Size i) = i >= n
 
 split :: Int -> Seq a -> (Seq a, Seq a)
-split n (Seq a) = n `seq` case F.split (\(Size s) -> s>n) a of (l, r) -> (Seq l, Seq r)
+split n (Seq a) = n `seq` case F.split (Size n) a of (l, _, r) -> (Seq l, Seq r)
