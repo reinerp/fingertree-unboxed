@@ -20,17 +20,17 @@
 
 -- | A copy-paste reimplementation of Ross Paterson's Data.FingerTree for which the measurement is unboxed.
 module Data.FingerTree.Unboxed (
-	FingerTree,
+	FingerTree(..),
         MaybeGroup(..),
 	Measured(..),
 	-- * Construction
-	empty, singleton,
-	(<|), (|>), (><),
+	empty, singleton, consD, Elem(..),
+	(<|), -- (|>), (><),
 --	fromList,
 	-- * Deconstruction
 --	null,
-	ViewL(..), ViewR(..), viewl, viewr,
-	split, SplitPred(..), -- takeUntil, dropUntil,
+--	ViewL(..), ViewR(..), viewl, viewr,
+--	split, SplitPred(..), -- takeUntil, dropUntil,
 	-- * Transformation
 --	reverse,
 --	fmap', fmapWithPos, unsafeFmap,
@@ -39,6 +39,7 @@ module Data.FingerTree.Unboxed (
         defineFingerTree,
 --        Elem(..),
         Node(..),
+        FingerTree',
 --        FingerTree',
         Polymorphic(..),
         Unbox,
@@ -72,10 +73,10 @@ $(declareType "defineNode_" [d| data Node v a = Node2 !v a a | Node3 !v a a a |]
 -- | Finger trees with element type @a@, annotated with measures of type @v@.
 -- The operations enforce the constraint @'Measured' v a@.
 $(declareType "defineFingerTree_" 
-   [d| data FingerTree v a
+   [d| data FingerTree' v a
 	= Empty
 	| Single a
-	| Deep !v !(Digit a) (FingerTree v (Node v a)) !(Digit a)
+	| Deep !v !(Digit a) (FingerTree' v (Node v a)) !(Digit a)
     |])
 
 defineFingerTree :: TH.Q TH.Type -> TH.Q [TH.Dec]
@@ -83,7 +84,7 @@ defineFingerTree sizeTy = do
     t <- sizeTy
     nm <- TH.newName "a"
     let nodeTy = return $ TH.AppT (TH.AppT (TH.ConT ''Node) t) (TH.VarT nm)
-        treeTy = return $ TH.AppT (TH.AppT (TH.ConT ''FingerTree) t) (TH.VarT nm)
+        treeTy = return $ TH.AppT (TH.AppT (TH.ConT ''FingerTree') t) (TH.VarT nm)
     liftM2 (++) (defineNode_ nodeTy) (defineFingerTree_ treeTy)
 
 
@@ -96,7 +97,7 @@ class Unpacked1 f where
     mk1 :: Polymorphic (f a) -> f a
     -- {-# INLINE unMk1 #-}
     unMk1 :: f a -> Polymorphic (f a)
-class (Unpacked1 (Node v), Unpacked1 (FingerTree v)) => Unbox v
+class (Unpacked1 (Node v), Unpacked1 (FingerTree' v)) => Unbox v
 
 deriving instance (Show v, Show a) => Show (Polymorphic (Node v a))
 
@@ -127,7 +128,7 @@ instance Functor s => Functor (ViewR s) where
 	fmap f (xs :> x)        = fmap f xs :> f x
 
 
-instance (Unbox v, Measured v a) => Measured v (FingerTree v a) where
+instance (Unbox v, Measured v a) => Measured v (FingerTree' v a) where
         measure f = case unMk1 f of
             Empty -> mempty
             Single x -> measure x
@@ -135,7 +136,7 @@ instance (Unbox v, Measured v a) => Measured v (FingerTree v a) where
         {-# INLINABLE measure #-}
 --        {-# INLINE measure #-}
 
-instance Unbox v => Foldable (FingerTree v) where
+instance Unbox v => Foldable (FingerTree' v) where
         {-# INLINE foldMap #-}
 --        {-# INLINABLE foldMap #-}
         foldMap f t = case unMk1 t of
@@ -144,15 +145,15 @@ instance Unbox v => Foldable (FingerTree v) where
             Deep _ pr m sf -> 
                foldMap f pr `mappend` foldMap (foldMap f) m `mappend` foldMap f sf
 
-instance (Unbox v, Measured v a, Eq a) => Eq (FingerTree v a) where
+instance (Unbox v, Measured v a, Eq a) => Eq (FingerTree' v a) where
         {-# INLINE (==) #-}
 	xs == ys = toList xs == toList ys
 
-instance (Unbox v, Measured v a, Ord a) => Ord (FingerTree v a) where
+instance (Unbox v, Measured v a, Ord a) => Ord (FingerTree' v a) where
         {-# INLINE compare #-}
 	compare xs ys = compare (toList xs) (toList ys)
 
-instance (Unbox v, Measured v a, Show a) => Show (FingerTree v a) where
+instance (Unbox v, Measured v a, Show a) => Show (FingerTree' v a) where
         {-# INLINE showsPrec #-}
 	showsPrec p xs = showParen (p > 10) $
 		showString "fromList " . shows (toList xs)
@@ -210,134 +211,132 @@ instance (MaybeGroup v, Unbox v) => Measured v (Node v a) where
 --                                         A big 'let' declaration                                --
 ----------------------------------------------------------------------------------------------------
 
-data BigDict v a =
-  BigDict{
-     emptyD :: FingerTree v a,
-     singletonD :: a -> FingerTree v a,
-     consD :: a -> FingerTree v a -> FingerTree v a,
-     snocD :: FingerTree v a -> a -> FingerTree v a,
-     viewlD :: FingerTree v a -> ViewL (FingerTree v) a,
-     viewrD :: FingerTree v a -> ViewR (FingerTree v) a,
-     appendD :: FingerTree v a -> FingerTree v a -> FingerTree v a,
-     splitD :: forall d. SplitPred d v => d -> FingerTree v a -> (FingerTree v a, a, FingerTree v a)
-    }
+newtype Elem a = Elem a
+instance Measured v a => Measured v (Elem a) where
+  {-# INLINE measure #-}
+  measure (Elem a) = measure a
+type FingerTree'Top v a = FingerTree' v (Elem a)
+
+newtype FingerTree v a = FingerTree (FingerTree'Top v a)
 
 class SplitPred d v | d -> v where
   checkPred :: d -> v -> Bool
   -- incrPred :: d -> v -> d
 
-newtype MeasuredD v a = MeasuredD { measureD :: a -> v}
-
 {-# INLINABLE empty #-}
-empty :: Unbox v => FingerTree v a
-empty = mk1 Empty
+empty = FingerTree empty'
 
 {-# INLINABLE singleton #-}
-singleton :: Unbox v => a -> FingerTree v a
-singleton a = mk1 (Single a)
+singleton a = FingerTree (singleton' (Elem a))
 
---{-# INLINE empty #-}
---empty = emptyD dict
--- {-# INLINABLE singleton #-}
---singleton = singletonD dict
+{-# INLINABLE empty' #-}
+empty' :: Unbox v => FingerTree' v a
+empty' = mk1 Empty
+
+{-# INLINABLE singleton' #-}
+singleton' :: Unbox v => a -> FingerTree' v a
+singleton' a = mk1 (Single a)
 
 {-# INLINABLE (<|) #-}
-(<|) = consD dict
+l <| (FingerTree r) = l `seq` FingerTree (Elem l `consD` r)
+{-
 {-# INLINABLE (|>) #-}
-(|>) = snocD dict
+(FingerTree l |> r = l `snocD` Elem r
+
 {-# INLINABLE (><) #-}
-(><) = appendD dict
+(FingerTree l) >< (FingerTree r) = FingerTree (l `appendD` r)
+
 {-# INLINABLE viewr #-}
-viewr = viewrD dict
+viewr (FingerTree t) = 
+   case viewrD t of
+     EmptyR -> EmptyR
+     l :> Elem r -> FingerTree l :> r
+
 {-# INLINABLE viewl #-}
-viewl = viewlD dict
+viewl (FingerTree t) = 
+   case viewlD t of
+     EmptyL -> EmptyL
+     Elem l :< r -> l :< FingerTree r
+
 {-# INLINABLE split #-}
-split = splitD dict
+split (FingerTree t) = 
+   case splitD t of
+     (l, Elem m, r) -> (FingerTree l, m, FingerTree r)
+-}
+------------------------------------------------------------------------------------------
+--                                         Smart constructors                           --
+------------------------------------------------------------------------------------------
+node2        ::  (Unbox v, Measured v b) => b -> b -> Node v b
+node2 a b    =   mk1 $ Node2 (myMeasure a `mappend` myMeasure b) a b
+{-# SPECIALISE node2 :: (Measured v a, Unbox v) => Elem a -> Elem a -> Node v (Elem a) #-}
+{-# SPECIALISE node2 :: (MaybeGroup v, Unbox v) => Node v b -> Node v b -> Node v (Node v b) #-}
+{-# INLINABLE node2 #-}
 
--- this dictionary gives us scoped type variables!
-{-# INLINE dict #-}
-dict :: forall v a. (Unbox v, Measured v a) => BigDict v a
-dict = BigDict{..} where
-  ------------------------------------------------------------------------------------------
-  --                                         Smart constructors                           --
-  ------------------------------------------------------------------------------------------
-  node2        ::  forall b. Measured v b => b -> b -> Node v b
-  node2 a b    =   mk1 $ Node2 (myMeasure a `mappend` myMeasure b) a b
-  {-# SPECIALISE node2 :: a -> a -> Node v a #-}
-  {-# SPECIALISE node2 :: Node v b -> Node v b -> Node v (Node v b) #-}
+node3        ::  (Unbox v, Measured v b) => b -> b -> b -> Node v b
+node3 a b c  =   mk1 $ Node3 (myMeasure a `mappend` myMeasure b `mappend` myMeasure c) a b c
+{-# SPECIALISE node3 :: (Measured v a, Unbox v) => Elem a -> Elem a -> Elem a -> Node v (Elem a) #-}
+{-# SPECIALISE node3 :: (MaybeGroup v, Unbox v) => Node v b -> Node v b -> Node v b -> Node v (Node v b) #-}
+{-# INLINABLE node3 #-}
 
-  node3        ::  forall b. Measured v b => b -> b -> b -> Node v b
-  node3 a b c  =   mk1 $ Node3 (myMeasure a `mappend` myMeasure b `mappend` myMeasure c) a b c
-  {-# SPECIALISE node3 :: a -> a -> a -> Node v a #-}
-  {-# SPECIALISE node3 :: Node v b -> Node v b -> Node v b -> Node v (Node v b) #-}
-
-  nodeToDigit :: forall b. Node v b -> Digit b
-  nodeToDigit node = case unMk1 node of
+nodeToDigit :: Unbox v => Node v b -> Digit b
+nodeToDigit node = case unMk1 node of
     Node2 _ a b -> Two a b
     Node3 _ a b c -> Three a b c
+{-# INLINABLE nodeToDigit #-}
 
-  myMeasure :: forall b. Measured v b => b -> v
-  myMeasure a = inline measure a
-  {-# SPECIALISE myMeasure :: a -> v #-}
-  {-# SPECIALISE myMeasure :: Node v b -> v #-}
-  {-# SPECIALISE myMeasure :: Digit a -> v #-}
-  {-# SPECIALISE myMeasure :: Digit (Node v b) -> v #-}
-  {-# SPECIALISE myMeasure :: FingerTree v a -> v #-}
-  {-# SPECIALISE myMeasure :: FingerTree v (Node v b) -> v #-}
+myMeasure :: Measured v b => b -> v
+myMeasure a = inline measure a
+{-# SPECIALISE myMeasure :: Measured v a => Elem a -> v #-}
+{-# SPECIALISE myMeasure :: (Unbox v, MaybeGroup v) => Node v b -> v #-}
+{-# SPECIALISE myMeasure :: Measured v a => Digit (Elem a) -> v #-}
+{-# SPECIALISE myMeasure :: (Unbox v, MaybeGroup v) => Digit (Node v b) -> v #-}
+{-# SPECIALISE myMeasure :: (Unbox v, Measured v a) => FingerTree' v (Elem a) -> v #-}
+{-# SPECIALISE myMeasure :: (Unbox v, MaybeGroup v) => FingerTree' v (Node v b) -> v #-}
+{-# INLINABLE myMeasure #-}
 
-  deep ::  forall b. Measured v b => Digit b -> FingerTree v (Node v b) -> Digit b -> FingerTree v b
-  deep pr m sf = mk1 $ Deep ((myMeasure pr `mappendVal` m) `mappend` myMeasure sf) pr m sf
-  {-# SPECIALISE deep :: Digit a -> FingerTree v (Node v a) -> Digit a -> FingerTree v a #-}
-  {-# SPECIALISE deep :: Digit (Node v c) -> FingerTree v (Node v (Node v c)) -> Digit (Node v c) -> FingerTree v (Node v c) #-}
+deep ::  (Unbox v, Measured v b) => Digit b -> FingerTree' v (Node v b) -> Digit b -> FingerTree' v b
+deep pr m sf = mk1 $ Deep ((myMeasure pr `mappendVal` m) `mappend` myMeasure sf) pr m sf
+{-# SPECIALISE deep :: (Unbox v, Measured v a) => Digit (Elem a) -> FingerTree' v (Node v (Elem a)) -> Digit (Elem a) -> FingerTree' v (Elem a) #-}
+{-# SPECIALISE deep :: (Unbox v, MaybeGroup v) => Digit (Node v c) -> FingerTree' v (Node v (Node v c)) -> Digit (Node v c) -> FingerTree' v (Node v c) #-}
+{-# INLINABLE deep #-}
 
-  empty' :: forall b. FingerTree v b
-  empty' = mk1 Empty
-
-  mappendVal :: forall b. Measured v b => v -> FingerTree v b -> v
-  mappendVal v t = v `seq` case unMk1 t of
+mappendVal :: (Unbox v, Measured v b) => v -> FingerTree' v b -> v
+mappendVal v t = v `seq` case unMk1 t of
       Empty -> v
       _ -> v `mappend` myMeasure t
---  {-# SPECIALISE mappendVal :: v -> FingerTree v a -> v #-}
---  {-# SPECIALISE mappendVal :: v -> FingerTree v (Node v b) -> v #-}
-  {-# INLINE mappendVal #-}
+--  {-# SPECIALISE mappendVal :: v -> FingerTree' v a -> v #-}
+--  {-# SPECIALISE mappendVal :: v -> FingerTree' v (Node v b) -> v #-}
+{-# INLINE mappendVal #-}
 
-  ------------------------------------------------------------------------------------------
-  --                                    Empty and singleton                               --
-  ------------------------------------------------------------------------------------------
-  -- | /O(1)/. The empty sequence.
-  emptyD :: FingerTree v a
-  emptyD = empty'
-
-  -- | /O(1)/. A singleton sequence.
-  singletonD :: a -> FingerTree v a
-  singletonD = mk1 . Single
-
-  ------------------------------------------------------------------------------------------
-  --                                         Cons                                         --
-  ------------------------------------------------------------------------------------------
-  -- | /O(1)/. Add an element to the left end of a sequence.
-  -- Mnemonic: a triangle with the single element at the pointy end.
-  consD :: forall b. Measured v b => b -> FingerTree v b -> FingerTree v b
-  consD a t = case unMk1 t of
+------------------------------------------------------------------------------------------
+--                                         Cons                                         --
+------------------------------------------------------------------------------------------
+-- | /O(1)/. Add an element to the left end of a sequence.
+-- Mnemonic: a triangle with the single element at the pointy end.
+consD :: (Unbox v, Measured v b) => b -> FingerTree' v b -> FingerTree' v b
+consD a t = case unMk1 t of
         Empty -> mk1 $ Single a
-        Single b -> deep (One a) empty' (One b)
+{-        Single b -> deep (One a) empty' (One b)
         Deep v (Four b c d e) m sf -> m `seq`
-            (mk1 $ Deep (myMeasure a `mappend` v) (Two a b) (consD (node3 c d e) m) sf)
-        Deep v pr m sf -> mk1 $ Deep (myMeasure a `mappend` v) (consDigit a pr) m sf
-  {-# SPECIALISE consD :: a -> FingerTree v a -> FingerTree v a #-}
-  {-# SPECIALISE consD :: Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b) #-}
+            (mk1 $ Deep (myMeasure a `mappend` v) (Two a b) (undefined (node3 c d e) m) sf)
+        Deep v pr m sf -> mk1 $ Deep (myMeasure a `mappend` v) (consDigit a pr) m sf -}
+--{-# SPECIALISE consD :: (Unbox v, Measured v a) => Elem a -> FingerTree' v (Elem a) -> FingerTree' v (Elem a) #-}
+--{-# SPECIALISE consD :: (Unbox v, MaybeGroup v) => Node v b -> FingerTree' v (Node v b) -> FingerTree' v (Node v b) #-}
+{-# INLINABLE consD #-}
 
-  consDigit :: forall b. b -> Digit b -> Digit b
-  consDigit a (One b) = Two a b
-  consDigit a (Two b c) = Three a b c
-  consDigit a (Three b c d) = Four a b c d
+consDigit :: b -> Digit b -> Digit b
+consDigit a (One b) = Two a b
+consDigit a (Two b c) = Three a b c
+consDigit a (Three b c d) = Four a b c d
+{-# INLINABLE consDigit #-}
 
+{-
   ------------------------------------------------------------------------------------------
   --                                         Snoc                                         --
   ------------------------------------------------------------------------------------------
   -- | /O(1)/. Add an element to the right end of a sequence.
   -- Mnemonic: a triangle with the single element at the pointy end.
-  snocD :: forall b. Measured v b => FingerTree v b -> b -> FingerTree v b
+  snocD :: Measured v b => FingerTree v b -> b -> FingerTree v b
   snocD t l = case unMk1 t of
         Empty -> mk1 $ Single l
         Single a -> deep (One a) empty' (One l)
@@ -347,7 +346,7 @@ dict = BigDict{..} where
   {-# SPECIALISE snocD :: FingerTree v a -> a -> FingerTree v a #-}
   {-# SPECIALISE snocD :: FingerTree v (Node v b) -> Node v b -> FingerTree v (Node v b) #-}
 
-  snocDigit :: forall b. Digit b -> b -> Digit b
+  snocDigit :: Digit b -> b -> Digit b
   snocDigit (One a) b = Two a b
   snocDigit (Two a b) c = Three a b c
   snocDigit (Three a b c) d = Four a b c d
@@ -356,7 +355,7 @@ dict = BigDict{..} where
   --                                         viewl                                        --
   ------------------------------------------------------------------------------------------
   -- | /O(1)/. Analyse the left end of a sequence.
-  viewlD :: forall b. Measured v b => FingerTree v b -> ViewL (FingerTree v) b
+  viewlD :: Measured v b => FingerTree v b -> ViewL (FingerTree v) b
   viewlD f = case unMk1 f of
     Empty -> EmptyL
     Single x -> x :< empty'
@@ -366,7 +365,7 @@ dict = BigDict{..} where
   {-# SPECIALISE viewlD :: FingerTree v a -> ViewL (FingerTree v) a #-}
   {-# SPECIALISE viewlD :: FingerTree v (Node v b) -> ViewL (FingerTree v) (Node v b) #-}
 
-  rotL :: forall b. Measured v b => FingerTree v (Node v b) -> Digit b -> FingerTree v b
+  rotL :: Measured v b => FingerTree v (Node v b) -> Digit b -> FingerTree v b
   rotL m sf      =   case viewlD m of
 	EmptyL  ->  digitToTree sf
 	node :< m' ->  case unMk1 node of
@@ -375,13 +374,13 @@ dict = BigDict{..} where
   {-# SPECIALISE rotL :: FingerTree v (Node v a) -> Digit a -> FingerTree v a #-}
   {-# SPECIALISE rotL :: FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> FingerTree v (Node v b) #-}
 
-  viewlDigit :: forall b. Digit b -> Either b (b, Digit b)
+  viewlDigit :: Digit b -> Either b (b, Digit b)
   viewlDigit (One a) = Left a
   viewlDigit (Two a b) = Right (a, One b)
   viewlDigit (Three a b c) = Right (a, Two b c)
   viewlDigit (Four a b c d) = Right (a, Three b c d)
 
-  digitToTree :: forall b. (Measured v b) => Digit b -> FingerTree v b
+  digitToTree :: (Measured v b) => Digit b -> FingerTree v b
   digitToTree (One a) = mk1 $ Single a
   digitToTree (Two a b) = deep (One a) empty' (One b)
   digitToTree (Three a b c) = deep (Two a b) empty' (One c)
@@ -393,7 +392,7 @@ dict = BigDict{..} where
   --                                         viewr                                        --
   ------------------------------------------------------------------------------------------
   -- | /O(1)/. Analyse the right end of a sequence.
-  viewrD :: forall b. Measured v b => FingerTree v b -> ViewR (FingerTree v) b
+  viewrD :: Measured v b => FingerTree v b -> ViewR (FingerTree v) b
   viewrD f = case unMk1 f of
       Empty -> EmptyR
       Single x -> empty' :> x
@@ -403,7 +402,7 @@ dict = BigDict{..} where
   {-# SPECIALISE viewrD :: FingerTree v a -> ViewR (FingerTree v) a #-}
   {-# SPECIALISE viewrD :: FingerTree v (Node v b) -> ViewR (FingerTree v) (Node v b) #-}
 
-  rotR :: forall b. Measured v b => Digit b -> FingerTree v (Node v b) -> FingerTree v b
+  rotR :: Measured v b => Digit b -> FingerTree v (Node v b) -> FingerTree v b
   rotR pr m = case viewrD m of
       EmptyR	->  digitToTree pr
       m' :> node -> case unMk1 node of
@@ -412,7 +411,7 @@ dict = BigDict{..} where
   {-# SPECIALISE rotR :: Digit a -> FingerTree v (Node v a) -> FingerTree v a #-}
   {-# SPECIALISE rotR :: Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v b) #-}
 
-  viewrDigit :: forall b. Digit b -> Either b (Digit b, b)
+  viewrDigit :: Digit b -> Either b (Digit b, b)
   viewrDigit (One a) = Left a
   viewrDigit (Two a b) = Right (One a, b)
   viewrDigit (Three a b c) = Right (Two a b, c)
@@ -470,7 +469,7 @@ dict = BigDict{..} where
   addDigits0 m1 (Four a b c d) (Four e f g h) m2 =
 	appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
 
-  appendTree1 :: forall b. FingerTree v (Node v b) -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
+  appendTree1 :: FingerTree v (Node v b) -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
   appendTree1 l a r = case unMk1 l of
       Empty -> a `consD` r
       Single x -> x `consD` a `consD` r
@@ -479,7 +478,7 @@ dict = BigDict{..} where
           Single x -> l `snocD` a `snocD` x
           Deep _ pr2 m2 sf2 -> deep pr1 (addDigits1 m1 sf1 a pr2 m2) sf2
 
-  addDigits1 :: forall b. FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
+  addDigits1 :: FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
   addDigits1 m1 (One a) b (One c) m2 =
 	appendTree1 m1 (node3 a b c) m2
   addDigits1 m1 (One a) b (Two c d) m2 =
@@ -513,7 +512,7 @@ dict = BigDict{..} where
   addDigits1 m1 (Four a b c d) e (Four f g h i) m2 =
 	appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
 
-  appendTree2 :: forall b. FingerTree v (Node v b) -> Node v b -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
+  appendTree2 :: FingerTree v (Node v b) -> Node v b -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
   appendTree2 l a b r = case unMk1 l of
       Empty -> a `consD` b `consD` r
       Single x -> x `consD` a `consD` b `consD` r
@@ -522,7 +521,7 @@ dict = BigDict{..} where
           Single x -> l `snocD` a `snocD` b `snocD` x
           Deep _ pr2 m2 sf2 -> deep pr1 (addDigits2 m1 sf1 a b pr2 m2) sf2
 
-  addDigits2 :: forall b. FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
+  addDigits2 :: FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
   addDigits2 m1 (One a) b c (One d) m2 =
 	appendTree2 m1 (node2 a b) (node2 c d) m2
   addDigits2 m1 (One a) b c (Two d e) m2 =
@@ -556,7 +555,7 @@ dict = BigDict{..} where
   addDigits2 m1 (Four a b c d) e f (Four g h i j) m2 =
 	appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
 
-  appendTree3 :: forall b. FingerTree v (Node v b) -> Node v b -> Node v b -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
+  appendTree3 :: FingerTree v (Node v b) -> Node v b -> Node v b -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
   appendTree3 l a b c r = case unMk1 l of
       Empty -> a `consD` b `consD` c `consD` r
       Single x -> x `consD` a `consD` b `consD` c `consD` r
@@ -565,7 +564,7 @@ dict = BigDict{..} where
           Single x -> l `snocD` a `snocD` b `snocD` c `snocD` x
           Deep _ pr2 m2 sf2 -> deep pr1 (addDigits3 m1 sf1 a b c pr2 m2) sf2
 
-  addDigits3 :: forall b. FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Node v b -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
+  addDigits3 :: FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Node v b -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
   addDigits3 m1 (One a) b c d (One e) m2 =
 	appendTree2 m1 (node3 a b c) (node2 d e) m2
   addDigits3 m1 (One a) b c d (Two e f) m2 =
@@ -599,7 +598,7 @@ dict = BigDict{..} where
   addDigits3 m1 (Four a b c d) e f g (Four h i j k) m2 =
 	appendTree4 m1 (node3 a b c) (node3 d e f) (node3 g h i) (node2 j k) m2
 
-  appendTree4 :: forall b. FingerTree v (Node v b) -> Node v b -> Node v b -> Node v b -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
+  appendTree4 :: FingerTree v (Node v b) -> Node v b -> Node v b -> Node v b -> Node v b -> FingerTree v (Node v b) -> FingerTree v (Node v b)
   appendTree4 l a b c d r = case unMk1 l of
       Empty -> a `consD` b `consD` c `consD` d `consD` r
       Single x -> x `consD` a `consD` b `consD` c `consD` d `consD` r
@@ -608,7 +607,7 @@ dict = BigDict{..} where
           Single x -> l `snocD` a `snocD` b `snocD` c `snocD` d `snocD` x
           Deep _ pr2 m2 sf2 -> deep pr1 (addDigits4 m1 sf1 a b c d pr2 m2) sf2
 
-  addDigits4 :: forall b. FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Node v b -> Node v b -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
+  addDigits4 :: FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> Node v b -> Node v b -> Node v b -> Node v b -> Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v (Node v b))
   addDigits4 m1 (One a) b c d e (One f) m2 =
 	appendTree2 m1 (node3 a b c) (node3 d e f) m2
   addDigits4 m1 (One a) b c d e (Two f g) m2 =
@@ -645,7 +644,7 @@ dict = BigDict{..} where
   ------------------------------------------------------------------------------------------
   --                                         Splitting                                    --
   ------------------------------------------------------------------------------------------
-  splitError :: forall b. b
+  splitError :: b
   splitError = error "splitTree of empty tree (possible violation of monoid invariant?)"
   
   -- | /O(log(min(i,n-i)))/. Split a sequence at a point where the predicate
@@ -662,7 +661,7 @@ dict = BigDict{..} where
     p x = checkPred d x
 
     -- we manually CPR this call, because GHC apparently doesn't want to
-    splitTree :: forall b. Measured v b => v -> FingerTree v b -> Split (FingerTree v b) b
+    splitTree :: Measured v b => v -> FingerTree v b -> Split (FingerTree v b) b
     splitTree i tree = case unMk1 tree of
         Empty -> i `seq` mkSplit splitError splitError splitError
         Single x -> i `seq` mkSplit empty x empty
@@ -681,7 +680,7 @@ dict = BigDict{..} where
     {-# SPECIALIZE splitTree :: v -> FingerTree v a -> Split (FingerTree v a) a #-}
     {-# SPECIALIZE splitTree :: v -> FingerTree v (Node v b) -> Split (FingerTree v (Node v b)) (Node v b) #-}
   
-    splitNode :: forall b. Measured v b => v -> Node v b -> Split (Maybe (Digit b)) b
+    splitNode :: Measured v b => v -> Node v b -> Split (Maybe (Digit b)) b
     splitNode i node = case unMk1 node of
       Node2 _ a b 
         | p va       -> mkSplit Nothing a (Just (One b))
@@ -696,7 +695,7 @@ dict = BigDict{..} where
     {-# SPECIALISE splitNode :: v -> Node v a -> Split (Maybe (Digit a)) a #-}
     {-# SPECIALISE splitNode :: v -> Node v (Node v b) -> Split (Maybe (Digit (Node v b))) (Node v b) #-}
     
-    splitDigit :: forall b. Measured v b => v -> Digit b -> Split (Maybe (Digit b)) b
+    splitDigit :: Measured v b => v -> Digit b -> Split (Maybe (Digit b)) b
     splitDigit i (One a) = i `seq` mkSplit Nothing a Nothing
     splitDigit i (Two a b)
       | p va	= mkSplit Nothing a (Just (One b))
@@ -719,13 +718,13 @@ dict = BigDict{..} where
     {-# SPECIALISE splitDigit :: v -> Digit a -> Split (Maybe (Digit a)) a #-}
     {-# SPECIALISE splitDigit :: v -> Digit (Node v b) -> Split (Maybe (Digit (Node v b))) (Node v b) #-}
 
-  deepL :: forall b. Measured v b => Maybe (Digit b) -> FingerTree v (Node v b) -> Digit b -> FingerTree v b
+  deepL :: Measured v b => Maybe (Digit b) -> FingerTree v (Node v b) -> Digit b -> FingerTree v b
   deepL Nothing m sf	=   rotL m sf
   deepL (Just pr) m sf	=   deep pr m sf
   {-# SPECIALISE deepL :: Maybe (Digit a) -> FingerTree v (Node v a) -> Digit a -> FingerTree v a #-}
   {-# SPECIALISE deepL :: Maybe (Digit (Node v b)) -> FingerTree v (Node v (Node v b)) -> Digit (Node v b) -> FingerTree v (Node v b) #-}
   
-  deepR :: forall b. Measured v b => Digit b -> FingerTree v (Node v b) -> Maybe (Digit b) -> FingerTree v b
+  deepR :: Measured v b => Digit b -> FingerTree v (Node v b) -> Maybe (Digit b) -> FingerTree v b
   deepR pr m Nothing	=   rotR pr m
   deepR pr m (Just sf)	=   deep pr m sf
   {-# SPECIALISE deepR :: Digit a -> FingerTree v (Node v a) -> Maybe (Digit a) -> FingerTree v a #-}
@@ -933,4 +932,5 @@ unsafeTraverseNode f (unMk1 -> Node3 v a b c) = (\a b c -> mk1 $ Node3 v a b c) 
 fromList :: (Unbox v, Measured v a) => [a] -> FingerTree v a 
 fromList = foldr (<|) empty
 {-# INLINABLE fromList #-}
+-}
 -}

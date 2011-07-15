@@ -8,8 +8,8 @@ import Data.FingerTree.Unboxed as F
 import Data.Unboxed
 
 newtype Size = Size { unSize :: Int }
-newtype Elem a = Elem { unElem :: a }
-newtype Seq a = Seq { unSeq :: FingerTree Size (Elem a) }
+data Elem' a = Elem' { unElem :: a }
+newtype Seq a = Seq { unSeq :: FingerTree Size (Elem' a) }
 
 instance Monoid Size where
     {-# INLINE mappend #-}
@@ -21,7 +21,7 @@ instance MaybeGroup Size where
     {-# INLINE trySubtract #-}
     trySubtract (Size a) (Size b) _ = Size (a - b)
 
-instance Measured Size (Elem a) where
+instance Measured Size (Elem' a) where
     {-# INLINE measure #-}
     measure _ = Size 1
 
@@ -31,7 +31,7 @@ instance F.Unpacked1 (Node Size) where
     mk1 = mk
     {-# INLINE unMk1 #-}
     unMk1 = unMk
-instance F.Unpacked1 (FingerTree Size) where
+instance F.Unpacked1 (FingerTree' Size) where
     {-# INLINE mk1 #-}
     mk1 = mk
     {-# INLINE unMk1 #-}
@@ -43,11 +43,21 @@ empty :: Seq a
 empty = Seq F.empty
 
 singleton :: a -> Seq a
-singleton = Seq . F.singleton . Elem
+singleton = Seq . F.singleton . Elem'
 
-(<|) :: a -> Seq a -> Seq a
-el <| (Seq a) = Seq (Elem el F.<| a)
+myCons :: a -> Seq a -> Seq a
+--el `myCons` (Seq a) = Seq (Elem' el F.<| a)
+el `myCons` (Seq (FingerTree a)) = Seq (FingerTree (Elem (Elem' el) `F.consD` a))
 
+--{-# SPECIALISE (F.<|) :: Elem' a -> FingerTree Size (Elem' a) -> FingerTree Size (Elem' a) #-}
+--{-# SPECIALISE F.consD :: Elem (Elem' a) -> FingerTree' Size (Elem (Elem' a)) -> FingerTree' Size (Elem (Elem' a)) #-}
+
+--specConsD :: (Unbox v, Measured v a) => Elem a -> FingerTree' v (Elem a) -> FingerTree' v (Elem a)
+--specConsD = F.consD
+
+
+
+{-
 (><) :: Seq a -> Seq a -> Seq a
 (Seq l) >< (Seq r) = Seq (l F.>< r)
 
@@ -67,3 +77,4 @@ length (Seq a) = unSize (F.measure a)
 
 split :: Int -> Seq a -> (Seq a, Seq a)
 split n (Seq a) = n `seq` case F.split (\(Size s) -> s>n) a of (l, r) -> (Seq l, Seq r)
+-}
