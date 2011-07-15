@@ -12,7 +12,7 @@
                  TypeSynonymInstances,
                  RecordWildCards,
                  NoMonomorphismRestriction,
-                 UnboxedTuples, MagicHash, BangPatterns #-}
+                 UnboxedTuples, MagicHash, BangPatterns, RankNTypes #-}
 
 -- rules for inlining:
 --   * every function should be marked INLINABLE or INLINE, to allow specialisation on the type classes
@@ -30,7 +30,7 @@ module Data.FingerTree.Unboxed (
 	-- * Deconstruction
 --	null,
 	ViewL(..), ViewR(..), viewl, viewr,
-	split, -- takeUntil, dropUntil,
+	split, SplitPred(..), -- takeUntil, dropUntil,
 	-- * Transformation
 --	reverse,
 --	fmap', fmapWithPos, unsafeFmap,
@@ -219,8 +219,12 @@ data BigDict v a =
      viewlD :: FingerTree v a -> ViewL (FingerTree v) a,
      viewrD :: FingerTree v a -> ViewR (FingerTree v) a,
      appendD :: FingerTree v a -> FingerTree v a -> FingerTree v a,
-     splitD :: (v -> Bool) -> FingerTree v a -> (FingerTree v a, a, FingerTree v a)
+     splitD :: forall d. SplitPred d v => d -> FingerTree v a -> (FingerTree v a, a, FingerTree v a)
     }
+
+class SplitPred d v | d -> v where
+  checkPred :: d -> v -> Bool
+  -- incrPred :: d -> v -> d
 
 newtype MeasuredD v a = MeasuredD { measureD :: a -> v}
 
@@ -247,7 +251,7 @@ singleton a = mk1 (Single a)
 viewr = viewrD dict
 {-# INLINABLE viewl #-}
 viewl = viewlD dict
-{-# INLINE split #-}
+{-# INLINABLE split #-}
 split = splitD dict
 
 -- this dictionary gives us scoped type variables!
@@ -647,12 +651,15 @@ dict = BigDict{..} where
   -- | /O(log(min(i,n-i)))/. Split a sequence at a point where the predicate
   -- on the accumulated measure changes from 'False' to 'True'. Also focuses on the element at which the change occurred.
   {-# INLINE splitD #-}
-  splitD :: (v -> Bool) -> FingerTree v a -> (FingerTree v a, a, FingerTree v a)
-  splitD p t = case unMk1 t of
+  splitD :: forall d. SplitPred d v => d -> FingerTree v a -> (FingerTree v a, a, FingerTree v a)
+  splitD d t = case unMk1 t of
       Empty -> error "empty" -- Nothing -- (empty, empty)
       _ | p (myMeasure t) -> case splitTree mempty t of (# l, x, r #) -> (l, x, r)
       _ | otherwise -> error "not found" -- (t, empty)
      where
+
+    p :: v -> Bool
+    p x = checkPred d x
 
     -- we manually CPR this call, because GHC apparently doesn't want to
     splitTree :: forall b. Measured v b => v -> FingerTree v b -> Split (FingerTree v b) b
