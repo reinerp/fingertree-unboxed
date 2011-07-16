@@ -261,6 +261,7 @@ viewl = viewlD dict
 split = splitD dict
 
 -- this dictionary gives us scoped type variables!
+-- more importantly, we need this dictionary to get sufficient specialisation. If we moved all the functions below to the toplevel (using the Elem trick as in Data.Sequence), then GHC bugs #5298 and #5236 prevent all our functions being specialised.
 {-# INLINE dict #-}
 dict :: forall v a. (Unbox v, Measured v a) => BigDict v a
 dict = BigDict{..} where
@@ -293,18 +294,7 @@ dict = BigDict{..} where
   measureDigit (Three a b c) = myMeasure a `mappend` myMeasure b `mappend` myMeasure c
   measureDigit (Four a b c d) = myMeasure a `mappend` myMeasure b `mappend` myMeasure c `mappend` myMeasure d
   {-# SPECIALISE measureDigit :: Digit a -> v #-}
-  {-# SPECIALISE measureDigit :: Digit (Node v b) -> v = measureDigit' #-}
-
-  {-# NOINLINE myMeasure' #-}
-  myMeasure' :: forall b. Measured v b => b -> v
-  myMeasure' a = myMeasure a
-
-  measureDigit' :: forall b. Digit (Node v b) -> v
-  measureDigit' (One a) = myMeasure' a
-  measureDigit' (Two a b) = myMeasure' a `mappend` myMeasure' b
-  measureDigit' (Three a b c) = myMeasure' a `mappend` myMeasure' b `mappend` myMeasure' c
-  measureDigit' (Four a b c d) = myMeasure' a `mappend` myMeasure' b `mappend` myMeasure' c `mappend` myMeasure' d
-
+  {-# SPECIALISE measureDigit :: Digit (Node v b) -> v #-} -- reverted NOINLINE, as performance reduced too much
 
   measureTree :: forall b. Measured v b => FingerTree v b -> v
   measureTree t = case unMk1 t of
@@ -438,8 +428,8 @@ dict = BigDict{..} where
       m' :> node -> case unMk1 node of
           Node2 _ a b -> mk1 $ Deep (measureDigit pr `mappend` measureTree m) pr m' (Two a b)
           Node3 _ a b c -> mk1 $ Deep (measureDigit pr `mappend` measureTree m) pr m' (Three a b c)
-  {-# SPECIALISE rotR :: Digit a -> FingerTree v (Node v a) -> FingerTree v a #-}
-  {-# SPECIALISE rotR :: Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v b) #-}
+  {-# SPECIALISE NOINLINE rotR :: Digit a -> FingerTree v (Node v a) -> FingerTree v a #-}
+  {-# SPECIALISE NOINLINE rotR :: Digit (Node v b) -> FingerTree v (Node v (Node v b)) -> FingerTree v (Node v b) #-}
 
   viewrDigit :: forall b. Digit b -> Either b (Digit b, b)
   viewrDigit (One a) = Left a
@@ -705,7 +695,7 @@ dict = BigDict{..} where
           | otherwise -> case splitDigit vm sf of
                             (# l, x, r #) -> mkSplit (deepR pr  m  l) x (maybe empty digitToTree r)
          where 
-           vpr =  i    `mappend`  measureDigit' pr
+           vpr =  i    `mappend`  measureDigit pr
            vm =  vpr  `mappend` measureTree m
     {-# SPECIALIZE splitTree :: v -> FingerTree v a -> Split (FingerTree v a) a #-}
     {-# SPECIALIZE splitTree :: v -> FingerTree v (Node v b) -> Split (FingerTree v (Node v b)) (Node v b) #-}
