@@ -262,7 +262,7 @@ split = splitD dict
 
 -- this dictionary gives us scoped type variables!
 -- more importantly, we need this dictionary to get sufficient specialisation. If we moved all the functions below to the toplevel (using the Elem trick as in Data.Sequence), then GHC bugs #5298 and #5236 prevent all our functions being specialised.
-{-# INLINE dict #-}
+{-# INLINABLE dict #-}
 dict :: forall v a. (Unbox v, Measured v a) => BigDict v a
 dict = BigDict{..} where
   ------------------------------------------------------------------------------------------
