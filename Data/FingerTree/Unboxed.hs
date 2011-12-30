@@ -39,6 +39,7 @@ module Data.FingerTree.Unboxed (
         defineFingerTree,
 --        Elem(..),
         Node(..),
+        Digit,
 --        FingerTree',
         Polymorphic(..),
         Unbox,

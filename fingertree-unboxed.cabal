@@ -16,6 +16,7 @@ Description:
                    \"Finger trees: a simple general-purpose data structure\",
                    /Journal of Functional Programming/ 16:2 (2006) pp 197-217.
                    <http://www.soi.city.ac.uk/~ross/papers/FingerTree.html>
+cabal-version: >= 1.8
 
 Library
   Exposed-Modules:
@@ -40,5 +41,5 @@ Library
 Test-Suite sequence
    type: exitcode-stdio-1.0
    main-is: Sequence.hs
-   build-depends: base, fingertree-unboxed
+   build-depends: base, fingertree-unboxed, th-unboxing
    hs-source-dirs: examples

@@ -54,6 +54,8 @@ el <| (Seq a) = Seq (Elem el F.<| a)
 (|>) :: Seq a -> a -> Seq a
 (Seq a) |> el = Seq (a F.|> Elem el)
 
+
+
 --null :: Seq a -> Bool
 --null (Seq a) = F.null a
 
