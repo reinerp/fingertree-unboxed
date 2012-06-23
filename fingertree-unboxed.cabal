@@ -17,10 +17,11 @@ Description:
                    /Journal of Functional Programming/ 16:2 (2006) pp 197-217.
                    <http://www.soi.city.ac.uk/~ross/papers/FingerTree.html>
 
+Build-type: Simple
+
 Library
   Exposed-Modules:
                 Data.FingerTree.Unboxed
-  Build-Type:     Simple
   Build-Depends:  base < 6, th-unboxing == 0.1.*, template-haskell, ghc-prim
   Extensions:   MultiParamTypeClasses
                 FunctionalDependencies
